@@ -1,0 +1,27 @@
+# --- Core backend ---
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+pydantic-settings==2.7.0
+jinja2==3.1.5
+python-multipart==0.0.20   # required by FastAPI for the face-upload endpoint
+
+# --- Database ---
+sqlalchemy==2.0.36
+alembic==1.14.0
+
+# --- IoT messaging ---
+paho-mqtt==2.1.0
+
+# --- Computer vision ---
+opencv-python==4.10.0.84
+numpy==1.26.4
+
+# --- Optional / installed in Week 3 (heavy, keep commented until needed) ---
+# ultralytics==8.3.55          # YOLO11 detection
+# facenet-pytorch==2.6.0       # FaceNet embeddings (pulls torch)
+# torch==2.5.1
+
+# --- Dev ---
+pytest==8.3.4
+httpx==0.28.1

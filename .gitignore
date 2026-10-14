@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.claude/
+.env
+*.db
+*.sqlite3
+data/
+models/*.pt
+models/*.onnx
+.pytest_cache/
+.vscode/
+*.egg-info/

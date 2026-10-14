@@ -1,0 +1,33 @@
+# Local infrastructure for development.
+#   docker compose up -d
+# The backend itself runs on the host (it needs the camera), so only the broker
+# and Home Assistant live here.
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: homeai-mqtt
+    ports:
+      - "1883:1883"   # MQTT
+      - "9001:9001"   # WebSocket, for browser-based MQTT tools
+    volumes:
+      - ./infra/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+    restart: unless-stopped
+
+  # Week 4-5: smart-home device integration.
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    container_name: homeai-ha
+    ports:
+      - "8123:8123"
+    volumes:
+      - ./infra/homeassistant:/config
+    environment:
+      - TZ=America/Denver
+    restart: unless-stopped
+
+volumes:
+  mosquitto_data:
+  mosquitto_log:

@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Home AI — Dashboard</title>
+  <style>
+    :root {
+      --bg: #0f1216; --panel: #171b21; --line: #272d36;
+      --text: #e6e9ee; --muted: #8b95a5; --accent: #4da3ff; --warn: #ffb020; --ok: #37d67a;
+      font-family: ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); }
+    header {
+      display: flex; align-items: center; gap: 16px;
+      padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--panel);
+    }
+    header h1 { font-size: 16px; margin: 0; font-weight: 600; letter-spacing: .2px; }
+    .pill { font-size: 12px; padding: 3px 9px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); }
+    .pill.on { color: var(--ok); border-color: #1f5c3a; }
+    .pill.off { color: var(--warn); border-color: #5c4a1f; }
+    main { display: grid; grid-template-columns: 1.15fr 1fr; gap: 16px; padding: 16px; }
+    @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+    section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+    section h2 {
+      margin: 0; padding: 11px 14px; font-size: 13px; font-weight: 600;
+      border-bottom: 1px solid var(--line); color: var(--muted); text-transform: uppercase; letter-spacing: .6px;
+    }
+    .body { padding: 12px 14px; max-height: 340px; overflow-y: auto; }
+    .feed div { padding: 7px 0; border-bottom: 1px dashed var(--line); font-size: 13px; }
+    .feed div:last-child { border-bottom: 0; }
+    .t { color: var(--muted); font-variant-numeric: tabular-nums; margin-right: 8px; font-size: 12px; }
+    .type { color: var(--accent); font-weight: 600; }
+    .type.alert { color: var(--warn); }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    td { padding: 7px 4px; border-bottom: 1px solid var(--line); }
+    tr:last-child td { border-bottom: 0; }
+    button {
+      background: #202733; color: var(--text); border: 1px solid var(--line);
+      border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer;
+    }
+    button:hover { border-color: var(--accent); }
+    img#preview { width: 100%; display: block; background: #000; min-height: 180px; }
+    .empty { color: var(--muted); font-size: 13px; padding: 6px 0; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Emerging AI IoT Integration</h1>
+    <span class="pill" id="s-ws">socket</span>
+    <span class="pill" id="s-mqtt">mqtt</span>
+    <span class="pill" id="s-vision">vision</span>
+    <span class="pill" id="s-model">model</span>
+  </header>
+
+  <main>
+    <div style="display:flex; flex-direction:column; gap:16px;">
+      <section>
+        <h2>Camera</h2>
+        <img id="preview" src="/stream/preview" alt="camera preview"
+             onerror="this.style.display='none'" />
+      </section>
+      <section>
+        <h2>Live events</h2>
+        <div class="body feed" id="feed"><div class="empty">waiting for events…</div></div>
+      </section>
+    </div>
+
+    <div style="display:flex; flex-direction:column; gap:16px;">
+      <section>
+        <h2>Household</h2>
+        <div class="body"><table id="people"></table></div>
+      </section>
+      <section>
+        <h2>Devices</h2>
+        <div class="body"><table id="devices"></table></div>
+      </section>
+      <section>
+        <h2>Notifications</h2>
+        <div class="body feed" id="notes"><div class="empty">none yet</div></div>
+      </section>
+    </div>
+  </main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const time = (iso) => new Date(iso).toLocaleTimeString();
+const ALERTS = new Set(["unknown_person", "presence_left"]);
+
+function setPill(el, ok, label) {
+  el.textContent = label;
+  el.className = "pill " + (ok ? "on" : "off");
+}
+
+async function loadHealth() {
+  try {
+    const h = await (await fetch("/api/health")).json();
+    setPill($("s-mqtt"), h.mqtt_connected, "mqtt " + (h.mqtt_connected ? "up" : "down"));
+    setPill($("s-vision"), h.vision_running, "vision " + (h.vision_running ? "running" : "off"));
+    setPill($("s-model"), h.detector_backend !== "stub",
+            h.detector_backend + " / " + h.recognizer_backend);
+  } catch { /* backend restarting */ }
+}
+
+async function loadPeople() {
+  const rows = await (await fetch("/api/people")).json();
+  const t = $("people");
+  t.innerHTML = rows.length ? "" : '<tr><td class="empty">no one registered yet</td></tr>';
+  for (const p of rows) {
+    t.insertAdjacentHTML("beforeend",
+      `<tr><td>${p.name}</td>
+           <td style="color:${p.is_home ? 'var(--ok)' : 'var(--muted)'}">
+             ${p.is_home ? "home" : "away"}</td>
+           <td style="color:var(--muted)">${p.last_seen ? time(p.last_seen) : "—"}</td></tr>`);
+  }
+}
+
+async function loadDevices() {
+  const rows = await (await fetch("/api/devices")).json();
+  const t = $("devices");
+  t.innerHTML = rows.length ? "" : '<tr><td class="empty">no devices registered yet</td></tr>';
+  for (const d of rows) {
+    const on = (d.state && d.state.state) || (d.online ? "online" : "offline");
+    t.insertAdjacentHTML("beforeend",
+      `<tr><td>${d.name}</td>
+           <td style="color:var(--muted)">${d.room || d.kind}</td>
+           <td>${on}</td>
+           <td><button onclick="toggle('${d.id}','ON')">on</button>
+               <button onclick="toggle('${d.id}','OFF')">off</button></td></tr>`);
+  }
+}
+
+async function toggle(id, state) {
+  await fetch(`/api/devices/${id}/command`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ payload: { state } }),
+  });
+}
+
+async function loadNotifications() {
+  const rows = await (await fetch("/api/notifications")).json();
+  const box = $("notes");
+  box.innerHTML = rows.length ? "" : '<div class="empty">none yet</div>';
+  for (const n of rows) {
+    box.insertAdjacentHTML("beforeend",
+      `<div><span class="t">${time(n.timestamp)}</span>${n.message}</div>`);
+  }
+}
+
+function addEvent(ev) {
+  const box = $("feed");
+  if (box.querySelector(".empty")) box.innerHTML = "";
+  const cls = ALERTS.has(ev.type) ? "type alert" : "type";
+  const detail = ev.payload && ev.payload.name
+    ? ev.payload.name
+    : (ev.device_id || ev.source);
+  box.insertAdjacentHTML("afterbegin",
+    `<div><span class="t">${time(ev.timestamp)}</span>
+          <span class="${cls}">${ev.type}</span> — ${detail}</div>`);
+  while (box.children.length > 100) box.lastChild.remove();
+
+  if (ev.type.startsWith("presence")) loadPeople();
+  if (ev.type === "device_state") loadDevices();
+  if (ev.type === "unknown_person" || ev.type.startsWith("presence")) loadNotifications();
+}
+
+function connect() {
+  const ws = new WebSocket(`ws://${location.host}/ws/events`);
+  ws.onopen = () => {
+    setPill($("s-ws"), true, "connected");
+    setInterval(() => ws.readyState === 1 && ws.send("ping"), 20000);
+  };
+  ws.onmessage = (m) => addEvent(JSON.parse(m.data));
+  ws.onclose = () => {
+    setPill($("s-ws"), false, "reconnecting");
+    setTimeout(connect, 2000);
+  };
+}
+
+loadHealth(); loadPeople(); loadDevices(); loadNotifications(); connect();
+setInterval(loadHealth, 10000);
+</script>
+</body>
+</html>
