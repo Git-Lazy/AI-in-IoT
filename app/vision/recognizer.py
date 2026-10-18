@@ -25,6 +25,36 @@ class Match:
     distance: float           # cosine distance; lower is a better match
 
 
+class FaceCropper:
+    """Finds the largest face in an image with OpenCV's Haar cascade.
+
+    Enrollment and the live pipeline must both embed the *same kind* of image --
+    a tight face crop -- or gallery vectors and live vectors aren't comparable and
+    every match fails. Haar is weak but free; swapping in MTCNN once
+    facenet-pytorch is installed is a change to this one class.
+
+    Not thread-safe: give each thread its own instance.
+    """
+
+    def __init__(self) -> None:
+        import cv2
+
+        path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+        self._cascade = cv2.CascadeClassifier(path)
+
+    def crop(self, image_bgr: np.ndarray) -> np.ndarray | None:
+        if image_bgr.size == 0:
+            return None
+        import cv2
+
+        gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
+        faces = self._cascade.detectMultiScale(gray, 1.1, 5, minSize=(40, 40))
+        if len(faces) == 0:
+            return None
+        fx, fy, fw, fh = max(faces, key=lambda f: f[2] * f[3])
+        return image_bgr[fy : fy + fh, fx : fx + fw]
+
+
 class FaceEncoder(ABC):
     """Produces a normalized embedding vector for a face crop."""
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 
 from app.events import Event, EventBus, EventType
-from app.vision.recognizer import FaceGallery, StubEncoder
+from app.vision.recognizer import FaceCropper, FaceGallery, StubEncoder
 
 
 def test_event_serializes():
@@ -57,6 +57,12 @@ def test_stub_encoder_is_deterministic_and_normalized():
     first, second = encoder.embed(image), encoder.embed(image)
     assert np.allclose(first, second)
     assert np.isclose(np.linalg.norm(first), 1.0, atol=1e-5)
+
+
+def test_cropper_finds_no_face_in_blank_image():
+    cropper = FaceCropper()
+    assert cropper.crop(np.zeros((200, 200, 3), dtype=np.uint8)) is None
+    assert cropper.crop(np.zeros((0, 0, 3), dtype=np.uint8)) is None
 
 
 # --- MQTT topic parsing -------------------------------------------------------

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.api.schemas import PersonIn, PersonOut
 from app.db import get_db
 from app.db.models import FaceEmbedding, Person
+from app.vision.recognizer import FaceCropper
 
 router = APIRouter(prefix="/api/people", tags=["people"])
 
@@ -52,7 +53,12 @@ async def enroll_face(
     if pipeline is None:
         raise HTTPException(503, "vision subsystem is disabled")
 
-    vector = pipeline._encoder.embed(image)
+    # Embed the face crop, not the whole photo -- the live pipeline matches crops.
+    face = FaceCropper().crop(image)
+    if face is None:
+        raise HTTPException(422, "no face found in image")
+
+    vector = pipeline._encoder.embed(face)
     if vector is None:
         raise HTTPException(422, "no usable face found in image")
 

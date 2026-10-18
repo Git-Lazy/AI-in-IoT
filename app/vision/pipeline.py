@@ -19,7 +19,7 @@ from app.db.models import FaceEmbedding, Person
 from app.events import Event, EventType, bus
 from app.vision.camera import Camera
 from app.vision.detector import Detection, build_detector
-from app.vision.recognizer import FaceGallery, build_encoder
+from app.vision.recognizer import FaceCropper, FaceGallery, build_encoder
 
 log = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ class VisionPipeline:
         self._detector = build_detector()
         self._encoder = build_encoder()
         self._gallery = FaceGallery(settings.face_match_threshold)
-        self._face_cascade = None
+        self._face_cropper = FaceCropper()
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
 
@@ -152,31 +152,12 @@ class VisionPipeline:
         return self._gallery.match(vector)
 
     def _crop_face(self, frame: np.ndarray, det: Detection) -> np.ndarray | None:
-        """Haar cascade inside the person box.
-
-        Haar is weak but free and dependency-light; swapping it for MTCNN is a
-        one-function change once facenet-pytorch is installed.
-        """
-        import cv2
-
-        if self._face_cascade is None:
-            path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-            self._face_cascade = cv2.CascadeClassifier(path)
-
+        """Find the face inside the person box (same cropper enrollment uses)."""
         x1, y1, x2, y2 = det.box
         h, w = frame.shape[:2]
         x1, y1 = max(x1, 0), max(y1, 0)
         x2, y2 = min(x2, w), min(y2, h)
-        roi = frame[y1:y2, x1:x2]
-        if roi.size == 0:
-            return None
-
-        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-        faces = self._face_cascade.detectMultiScale(gray, 1.1, 5, minSize=(40, 40))
-        if len(faces) == 0:
-            return None
-        fx, fy, fw, fh = max(faces, key=lambda f: f[2] * f[3])
-        return roi[fy : fy + fh, fx : fx + fw]
+        return self._face_cropper.crop(frame[y1:y2, x1:x2])
 
     def _draw_preview(self, frame: np.ndarray, detections: list[Detection]) -> None:
         import cv2

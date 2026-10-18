@@ -18,7 +18,7 @@ import numpy as np  # noqa: E402
 
 from app.db import init_db, session_scope  # noqa: E402
 from app.db.models import FaceEmbedding, Person  # noqa: E402
-from app.vision.recognizer import build_encoder  # noqa: E402
+from app.vision.recognizer import FaceCropper, build_encoder  # noqa: E402
 
 SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 
@@ -40,6 +40,7 @@ def main() -> int:
 
     init_db()
     encoder = build_encoder()
+    cropper = FaceCropper()
     stored = 0
 
     with session_scope() as session:
@@ -55,7 +56,12 @@ def main() -> int:
             if image is None:
                 print(f"  skip {path.name}: unreadable")
                 continue
-            vector = encoder.embed(image)
+            # Embed the face crop, not the whole photo -- the live pipeline matches crops.
+            face = cropper.crop(image)
+            if face is None:
+                print(f"  skip {path.name}: no face found")
+                continue
+            vector = encoder.embed(face)
             if vector is None:
                 print(f"  skip {path.name}: no usable face")
                 continue
