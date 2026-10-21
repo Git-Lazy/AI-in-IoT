@@ -206,6 +206,6 @@ def register_handlers() -> None:
     bus.subscribe(log_event)
     bus.subscribe(sync_device_state, {EventType.DEVICE_STATE, EventType.SENSOR_READING})
     bus.subscribe(mirror_to_mqtt)
-    bus.subscribe(track_presence, {EventType.PERSON_RECOGNIZED})
+    bus.subscribe(track_presence, {EventType.PERSON_RECOGNIZED, EventType.PERSON_SEEN})
     bus.subscribe(evaluate_rules)
     log.info("automation handlers registered (%d rules)", len(RULES))

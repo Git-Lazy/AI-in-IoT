@@ -24,6 +24,7 @@ log = logging.getLogger(__name__)
 class EventType(str, Enum):
     PERSON_DETECTED = "person_detected"
     PERSON_RECOGNIZED = "person_recognized"
+    PERSON_SEEN = "person_seen"          # periodic "still in frame" for a recognized track
     UNKNOWN_PERSON = "unknown_person"
     PRESENCE_ARRIVED = "presence_arrived"
     PRESENCE_LEFT = "presence_left"

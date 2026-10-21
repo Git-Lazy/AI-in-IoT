@@ -65,6 +65,45 @@ def test_cropper_finds_no_face_in_blank_image():
     assert cropper.crop(np.zeros((0, 0, 3), dtype=np.uint8)) is None
 
 
+def test_recognized_track_sends_rate_limited_heartbeat(monkeypatch):
+    from app.vision import pipeline as pl
+    from app.vision.detector import Detection
+    from app.vision.recognizer import Match
+
+    sent: list = []
+    clock = [1000.0]
+    monkeypatch.setattr("app.vision.pipeline.bus.publish_threadsafe", sent.append)
+    monkeypatch.setattr("app.vision.pipeline.time.monotonic", lambda: clock[0])
+
+    vp = pl.VisionPipeline()
+    vp._announced[7] = Match(person_id=1, name="Alice", distance=0.1)
+    det = Detection(label="person", confidence=0.9, box=(0, 0, 10, 10), track_id=7)
+
+    vp._heartbeat(det, "vision:test")                 # first sighting -> sent
+    clock[0] += 5
+    vp._heartbeat(det, "vision:test")                 # too soon -> suppressed
+    clock[0] += pl.SEEN_HEARTBEAT_SECONDS
+    vp._heartbeat(det, "vision:test")                 # interval passed -> sent
+
+    assert [e.type for e in sent] == [EventType.PERSON_SEEN, EventType.PERSON_SEEN]
+    assert sent[0].person_id == 1
+
+
+def test_unknown_or_untracked_gets_no_heartbeat(monkeypatch):
+    from app.vision import pipeline as pl
+    from app.vision.detector import Detection
+    from app.vision.recognizer import Match
+
+    sent: list = []
+    monkeypatch.setattr("app.vision.pipeline.bus.publish_threadsafe", sent.append)
+
+    vp = pl.VisionPipeline()
+    vp._announced[3] = Match(person_id=None, name="unknown", distance=0.9)
+    vp._heartbeat(Detection("person", 0.9, (0, 0, 10, 10), track_id=3), "vision:test")
+    vp._heartbeat(Detection("person", 0.9, (0, 0, 10, 10), track_id=None), "vision:test")
+    assert sent == []
+
+
 # --- MQTT topic parsing -------------------------------------------------------
 # Exercised without a broker: feed the bridge a message and capture what it
 # would have put on the bus.

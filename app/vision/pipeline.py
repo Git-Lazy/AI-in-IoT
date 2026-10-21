@@ -19,9 +19,13 @@ from app.db.models import FaceEmbedding, Person
 from app.events import Event, EventType, bus
 from app.vision.camera import Camera
 from app.vision.detector import Detection, build_detector
-from app.vision.recognizer import FaceCropper, FaceGallery, build_encoder
+from app.vision.recognizer import FaceCropper, FaceGallery, Match, build_encoder
 
 log = logging.getLogger(__name__)
+
+# How often to re-confirm a recognized person who is still in frame. Must stay
+# well under rules.PRESENCE_TIMEOUT or they get marked "left" mid-visit.
+SEEN_HEARTBEAT_SECONDS = 30
 
 
 class VisionPipeline:
@@ -42,7 +46,9 @@ class VisionPipeline:
         # track_id -> last reported person, so we announce each person once per
         # appearance instead of once per frame. Crude but effective de-duplication;
         # the Week 6-7 rules work replaces this with proper dwell logic.
-        self._announced: dict[int, str] = {}
+        self._announced: dict[int, Match] = {}
+        # person_id -> monotonic time of the last PERSON_RECOGNIZED/PERSON_SEEN.
+        self._last_seen_sent: dict[int, float] = {}
 
     # ---------------------------------------------------------------- lifecycle
 
@@ -115,17 +121,22 @@ class VisionPipeline:
                 )
             )
 
+            self._heartbeat(det, source)
+
             match = self._identify(frame, det)
             if match is None:
                 continue
 
             # Only announce an identity change for this track.
-            if det.track_id is not None and self._announced.get(det.track_id) == match.name:
+            previous = self._announced.get(det.track_id) if det.track_id is not None else None
+            if previous is not None and previous.name == match.name:
                 continue
             if det.track_id is not None:
-                self._announced[det.track_id] = match.name
+                self._announced[det.track_id] = match
 
             known = match.person_id is not None
+            if known:
+                self._last_seen_sent[match.person_id] = time.monotonic()
             bus.publish_threadsafe(
                 Event(
                     type=EventType.PERSON_RECOGNIZED if known else EventType.UNKNOWN_PERSON,
@@ -140,6 +151,35 @@ class VisionPipeline:
                     },
                 )
             )
+
+    def _heartbeat(self, det: Detection, source: str) -> None:
+        """Keep presence alive while a recognized track stays in frame.
+
+        Recognition is announced once per track, so without this `last_seen`
+        would freeze at the first sighting and expire_presence would mark the
+        person as gone while they're still standing there. Keyed on the track,
+        not the face, so it holds even when they turn away from the camera.
+        """
+        if det.track_id is None:
+            return
+        match = self._announced.get(det.track_id)
+        if match is None or match.person_id is None:
+            return
+
+        now = time.monotonic()
+        last = self._last_seen_sent.get(match.person_id)
+        if last is not None and now - last < SEEN_HEARTBEAT_SECONDS:
+            return
+        self._last_seen_sent[match.person_id] = now
+
+        bus.publish_threadsafe(
+            Event(
+                type=EventType.PERSON_SEEN,
+                source=source,
+                person_id=match.person_id,
+                payload={"name": match.name, "track_id": det.track_id, "camera": self.camera_name},
+            )
+        )
 
     def _identify(self, frame: np.ndarray, det: Detection):
         """Crop the face region inside a person box and match it."""
