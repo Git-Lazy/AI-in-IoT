@@ -49,10 +49,37 @@ async def enroll_face(
     if image is None:
         raise HTTPException(400, "could not decode image")
 
+    return _enroll_image(person, image, _pipeline(request), db)
+
+
+@router.post("/{person_id}/faces/capture", status_code=201)
+def capture_face(person_id: int, request: Request, db: Session = Depends(get_db)):
+    """Enroll from the live camera's current frame (the dashboard's Capture button).
+
+    Uses the camera the pipeline already owns, so enrollment photos come from the
+    exact camera that does the recognizing -- and the frame is never saved.
+    """
+    person = db.get(Person, person_id)
+    if person is None:
+        raise HTTPException(404, "person not found")
+
+    pipeline = _pipeline(request)
+    frame = pipeline.latest_frame()
+    if frame is None:
+        raise HTTPException(503, "camera has no frame yet")
+
+    return _enroll_image(person, frame, pipeline, db)
+
+
+def _pipeline(request: Request):
     pipeline = request.app.state.pipeline
     if pipeline is None:
         raise HTTPException(503, "vision subsystem is disabled")
+    return pipeline
 
+
+def _enroll_image(person: Person, image: np.ndarray, pipeline, db: Session) -> dict:
+    """Crop, embed, store, and refresh the live gallery."""
     # Embed the face crop, not the whole photo -- the live pipeline matches crops.
     face = FaceCropper().crop(image)
     if face is None:
@@ -73,7 +100,18 @@ async def enroll_face(
     db.commit()
     pipeline.reload_gallery()
 
-    return {"person_id": person.id, "name": person.name, "embedding_dim": int(vector.shape[0])}
+    faces = (
+        db.query(FaceEmbedding)
+        .filter(FaceEmbedding.person_id == person.id,
+                FaceEmbedding.model_name == pipeline._encoder.name)
+        .count()
+    )
+    return {
+        "person_id": person.id,
+        "name": person.name,
+        "embedding_dim": int(vector.shape[0]),
+        "faces_enrolled": faces,
+    }
 
 
 @router.delete("/{person_id}", status_code=204)

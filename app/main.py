@@ -127,4 +127,7 @@ if __name__ == "__main__":
         host=settings.app_host,
         port=settings.app_port,
         reload=True,
+        # Watch code only. The project root also holds data/homeai.db, which is
+        # written on every event and floods the log with "changes detected".
+        reload_dirs=["app"],
     )

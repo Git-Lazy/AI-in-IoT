@@ -42,7 +42,8 @@ class FaceCropper:
         path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
         self._cascade = cv2.CascadeClassifier(path)
 
-    def crop(self, image_bgr: np.ndarray) -> np.ndarray | None:
+    def find(self, image_bgr: np.ndarray) -> tuple[int, int, int, int] | None:
+        """Box (x, y, w, h) of the largest face, or None."""
         if image_bgr.size == 0:
             return None
         import cv2
@@ -51,7 +52,13 @@ class FaceCropper:
         faces = self._cascade.detectMultiScale(gray, 1.1, 5, minSize=(40, 40))
         if len(faces) == 0:
             return None
-        fx, fy, fw, fh = max(faces, key=lambda f: f[2] * f[3])
+        return tuple(int(v) for v in max(faces, key=lambda f: f[2] * f[3]))
+
+    def crop(self, image_bgr: np.ndarray) -> np.ndarray | None:
+        box = self.find(image_bgr)
+        if box is None:
+            return None
+        fx, fy, fw, fh = box
         return image_bgr[fy : fy + fh, fx : fx + fw]
 
 

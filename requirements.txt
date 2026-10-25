@@ -17,10 +17,14 @@ paho-mqtt==2.1.0
 opencv-python==4.10.0.84
 numpy==1.26.4
 
-# --- Optional / installed in Week 3 (heavy, keep commented until needed) ---
-# ultralytics==8.3.55          # YOLO11 detection
-# facenet-pytorch==2.6.0       # FaceNet embeddings (pulls torch)
-# torch==2.5.1
+# --- AI models ---
+# facenet-pytorch 2.6.0 caps torch below 2.3. For GPU, install the CUDA build first:
+#   pip install torch==2.2.2 torchvision==0.17.2 --index-url https://download.pytorch.org/whl/cu121
+torch==2.2.2
+torchvision==0.17.2
+ultralytics==8.4.184         # YOLO11 detection + tracking
+lap==0.5.13                  # ultralytics tracker dependency
+facenet-pytorch==2.6.0       # FaceNet embeddings
 
 # --- Dev ---
 pytest==8.3.4

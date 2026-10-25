@@ -43,6 +43,15 @@
     button:hover { border-color: var(--accent); }
     img#preview { width: 100%; display: block; background: #000; min-height: 180px; }
     .empty { color: var(--muted); font-size: 13px; padding: 6px 0; }
+    .enroll { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .enroll input {
+      flex: 1; min-width: 140px; background: #0f1216; color: var(--text);
+      border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px; font-size: 13px;
+    }
+    .enroll button { padding: 6px 14px; font-size: 13px; }
+    .hint { color: var(--muted); font-size: 12px; margin-top: 8px; }
+    #enroll-status.ok { color: var(--ok); }
+    #enroll-status.err { color: var(--warn); }
   </style>
 </head>
 <body>
@@ -60,6 +69,19 @@
         <h2>Camera</h2>
         <img id="preview" src="/stream/preview" alt="camera preview"
              onerror="this.style.display='none'" />
+      </section>
+      <section>
+        <h2>Enroll a face</h2>
+        <div class="body">
+          <div class="enroll">
+            <input id="enroll-name" placeholder="Name, e.g. Samuel" />
+            <button id="enroll-btn" onclick="captureFace()">Capture</button>
+          </div>
+          <div class="hint" id="enroll-status">
+            Look at the camera and press Capture. Aim for about 10: straight on,
+            turned a little left and right, chin up and down, and a couple from farther back.
+          </div>
+        </div>
       </section>
       <section>
         <h2>Live events</h2>
@@ -115,6 +137,45 @@ async function loadPeople() {
            <td style="color:var(--muted)">${p.last_seen ? time(p.last_seen) : "—"}</td></tr>`);
   }
 }
+
+async function captureFace() {
+  const name = $("enroll-name").value.trim();
+  const status = $("enroll-status");
+  const btn = $("enroll-btn");
+  if (!name) { status.className = "hint err"; status.textContent = "Type a name first."; return; }
+
+  btn.disabled = true;
+  try {
+    // Find the person, or register them on their first capture.
+    const people = await (await fetch("/api/people")).json();
+    let person = people.find((p) => p.name.toLowerCase() === name.toLowerCase());
+    if (!person) {
+      const r = await fetch("/api/people", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      if (!r.ok) throw new Error((await r.json()).detail || "could not create person");
+      person = await r.json();
+      loadPeople();
+    }
+
+    const r = await fetch(`/api/people/${person.id}/faces/capture`, { method: "POST" });
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.detail || "capture failed");
+    status.className = "hint ok";
+    status.textContent = `Captured. ${body.name} now has ${body.faces_enrolled} face(s) enrolled.`;
+  } catch (e) {
+    status.className = "hint err";
+    status.textContent = e.message === "no face found in image"
+      ? "No face found. Face the camera directly, with more light."
+      : e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+$("enroll-name").addEventListener("keydown", (e) => { if (e.key === "Enter") captureFace(); });
 
 async function loadDevices() {
   const rows = await (await fetch("/api/devices")).json();

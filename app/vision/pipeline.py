@@ -65,11 +65,16 @@ class VisionPipeline:
         self._camera.stop()
 
     def reload_gallery(self) -> None:
-        """Pull enrolled embeddings out of the database into memory."""
+        """Pull enrolled embeddings out of the database into memory.
+
+        Only embeddings from the active encoder are loaded -- vectors from a
+        different model live in a different space and can't be compared.
+        """
         with session_scope() as session:
             rows = (
                 session.query(FaceEmbedding, Person)
                 .join(Person, FaceEmbedding.person_id == Person.id)
+                .filter(FaceEmbedding.model_name == self._encoder.name)
                 .all()
             )
             entries = [
@@ -79,6 +84,10 @@ class VisionPipeline:
         self._gallery.load(entries)
 
     # ------------------------------------------------------------------- frames
+
+    def latest_frame(self) -> np.ndarray | None:
+        """Current raw camera frame (no overlays) -- used for enrollment capture."""
+        return self._camera.read()
 
     def latest_preview(self) -> np.ndarray | None:
         with self._preview_lock:
@@ -135,6 +144,10 @@ class VisionPipeline:
                 self._announced[det.track_id] = match
 
             known = match.person_id is not None
+            log.info(
+                "track #%s identified as %s (match %.2f)",
+                det.track_id, match.name, 1.0 - match.distance,
+            )
             if known:
                 self._last_seen_sent[match.person_id] = time.monotonic()
             bus.publish_threadsafe(
@@ -205,13 +218,20 @@ class VisionPipeline:
         annotated = frame.copy()
         for det in detections:
             x1, y1, x2, y2 = det.box
-            cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 200, 0), 2)
-            label = f"{det.label} {det.confidence:.2f}"
+            # Green = recognized, red = unknown face, gray = no face read yet.
+            match = self._announced.get(det.track_id) if det.track_id is not None else None
+            if match is None:
+                color, label = (160, 160, 160), f"{det.label} {det.confidence:.2f}"
+            elif match.person_id is not None:
+                color, label = (0, 200, 0), f"{match.name}  match {1 - match.distance:.2f}"
+            else:
+                color, label = (0, 0, 220), f"unknown  match {1 - match.distance:.2f}"
             if det.track_id is not None:
                 label += f" #{det.track_id}"
+            cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
             cv2.putText(
                 annotated, label, (x1, max(y1 - 8, 12)),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 0), 1,
+                cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2,
             )
         with self._preview_lock:
             self._preview = annotated
