@@ -1,4 +1,4 @@
-"""Database schema: people, their face embeddings, devices, and the event log."""
+"""Database schema: people, faces, access rules, preferences, devices, event log."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from sqlalchemy import (
     LargeBinary,
     String,
     Boolean,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -33,6 +34,10 @@ class Person(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(80), unique=True)
     is_household: Mapped[bool] = mapped_column(Boolean, default=True)
+    # admin | adult | child | guest -- see app/access.py for what each may do.
+    role: Mapped[str] = mapped_column(String(16), default="adult")
+    # Only admins have one. PBKDF2, "salt$hash" hex -- see app/auth.py.
+    password_hash: Mapped[str | None] = mapped_column(String(200), nullable=True)
     # Presence state, updated by the rules engine on arrive/leave events.
     is_home: Mapped[bool] = mapped_column(Boolean, default=False)
     last_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -41,6 +46,8 @@ class Person(Base):
     faces: Mapped[list["FaceEmbedding"]] = relationship(
         back_populates="person", cascade="all, delete-orphan"
     )
+    access_rules: Mapped[list["AccessRule"]] = relationship(cascade="all, delete-orphan")
+    preferences: Mapped[list["Preference"]] = relationship(cascade="all, delete-orphan")
 
 
 class FaceEmbedding(Base):
@@ -69,11 +76,42 @@ class Device(Base):
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)   # e.g. "light.living_room"
     name: Mapped[str] = mapped_column(String(80))
-    kind: Mapped[str] = mapped_column(String(32))                   # light | lock | sensor | camera
+    kind: Mapped[str] = mapped_column(String(32))                   # see app/iot/devices.py KINDS
     room: Mapped[str] = mapped_column(String(50), default="")
+    # "simulated" runs inside the backend; "mqtt" is real hardware on the broker.
+    # Flip one to the other when the physical device arrives -- nothing else changes.
+    transport: Mapped[str] = mapped_column(String(16), default="simulated")
     state: Mapped[dict] = mapped_column(JSON, default=dict)         # last known state
     online: Mapped[bool] = mapped_column(Boolean, default=False)
     last_update: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class AccessRule(Base):
+    """A per-person exception to their role's defaults.
+
+    `target` is "kind:<kind>" (every device of that kind) or "device:<id>" (one
+    device). A device rule beats a kind rule, which beats the role default.
+    """
+
+    __tablename__ = "access_rules"
+    __table_args__ = (UniqueConstraint("person_id", "target"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    person_id: Mapped[int] = mapped_column(ForeignKey("people.id", ondelete="CASCADE"))
+    target: Mapped[str] = mapped_column(String(80))
+    allowed: Mapped[bool] = mapped_column(Boolean)
+
+
+class Preference(Base):
+    """What a person wants a device set to when they arrive home."""
+
+    __tablename__ = "preferences"
+    __table_args__ = (UniqueConstraint("person_id", "device_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    person_id: Mapped[int] = mapped_column(ForeignKey("people.id", ondelete="CASCADE"))
+    device_id: Mapped[str] = mapped_column(String(64))
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)   # same shape as a command
 
 
 class EventLog(Base):

@@ -5,10 +5,11 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 
 from app.events import Event, bus
+from app.vision import cameras
 
 log = logging.getLogger(__name__)
 router = APIRouter(tags=["stream"])
@@ -54,12 +55,25 @@ async def events_socket(ws: WebSocket):
         manager.disconnect(ws)
 
 
+@router.get("/api/cameras")
+def list_cameras():
+    """Every running camera, its room, and who it can see right now."""
+    return [
+        {
+            "name": p.camera_name,
+            "room": p.room,
+            "present": [m.name for m in p.present_people()],
+        }
+        for p in cameras.all()
+    ]
+
+
 @router.get("/stream/preview")
-async def preview(request: Request):
-    """MJPEG stream of the annotated camera feed."""
-    pipeline = request.app.state.pipeline
+async def preview(camera: str | None = None):
+    """MJPEG stream of the annotated camera feed (default: the first camera)."""
+    pipeline = cameras.get(camera)
     if pipeline is None:
-        raise HTTPException(503, "vision subsystem is disabled")
+        raise HTTPException(503, "no camera running" if camera is None else f"no camera '{camera}'")
 
     async def frames():
         import cv2

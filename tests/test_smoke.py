@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 
 from app.events import Event, EventBus, EventType
-from app.vision.recognizer import FaceCropper, FaceGallery, StubEncoder
+from app.vision.recognizer import FaceGallery, HaarCropper, Match, StubEncoder
 
 
 def test_event_serializes():
@@ -60,7 +60,7 @@ def test_stub_encoder_is_deterministic_and_normalized():
 
 
 def test_cropper_finds_no_face_in_blank_image():
-    cropper = FaceCropper()
+    cropper = HaarCropper()
     assert cropper.crop(np.zeros((200, 200, 3), dtype=np.uint8)) is None
     assert cropper.crop(np.zeros((0, 0, 3), dtype=np.uint8)) is None
 
@@ -76,7 +76,7 @@ def test_recognized_track_sends_rate_limited_heartbeat(monkeypatch):
     monkeypatch.setattr("app.vision.pipeline.time.monotonic", lambda: clock[0])
 
     vp = pl.VisionPipeline()
-    vp._announced[7] = Match(person_id=1, name="Alice", distance=0.1)
+    vp._tracks[7] = pl.TrackState(identity=Match(person_id=1, name="Alice", distance=0.1))
     det = Detection(label="person", confidence=0.9, box=(0, 0, 10, 10), track_id=7)
 
     vp._heartbeat(det, "vision:test")                 # first sighting -> sent
@@ -98,7 +98,7 @@ def test_unknown_or_untracked_gets_no_heartbeat(monkeypatch):
     monkeypatch.setattr("app.vision.pipeline.bus.publish_threadsafe", sent.append)
 
     vp = pl.VisionPipeline()
-    vp._announced[3] = Match(person_id=None, name="unknown", distance=0.9)
+    vp._tracks[3] = pl.TrackState(identity=Match(person_id=None, name="unknown", distance=0.9))
     vp._heartbeat(Detection("person", 0.9, (0, 0, 10, 10), track_id=3), "vision:test")
     vp._heartbeat(Detection("person", 0.9, (0, 0, 10, 10), track_id=None), "vision:test")
     assert sent == []

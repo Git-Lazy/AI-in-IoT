@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import cv2  # noqa: E402
 
 from app.config import settings  # noqa: E402
-from app.vision.recognizer import FaceCropper  # noqa: E402
+from app.vision.recognizer import build_cropper  # noqa: E402
 
 WINDOW = "capture faces  |  SPACE = capture   Q = quit"
 
@@ -56,7 +56,7 @@ def main() -> int:
     print(f"camera {source!r} open; saving to {out} ({existing} photo(s) already there)")
 
     # Same detector enroll_face.py uses: if it finds a face here, enrollment will too.
-    cropper = FaceCropper()
+    cropper = build_cropper()
     saved = 0
     flash_until = 0.0
 
@@ -74,7 +74,7 @@ def main() -> int:
                 cv2.rectangle(view, (x, y), (x + w, y + h), (0, 200, 0), 2)
                 status, color = "face found - SPACE to capture", (0, 200, 0)
             else:
-                status, color = "no face - face the camera, more light", (0, 0, 220)
+                status, color = "no clear face - face the camera, come closer, hold still", (0, 0, 220)
 
             if time.time() < flash_until:
                 cv2.rectangle(view, (0, 0), (view.shape[1] - 1, view.shape[0] - 1), (255, 255, 255), 12)

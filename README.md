@@ -84,15 +84,85 @@ python scripts/fake_device.py
 The dashboard should start showing `sensor_reading` events, and the on/off
 buttons should drive the simulated devices through MQTT round-trip.
 
-## Enrolling a face
+## First run: admin, faces, devices
+
+Open the dashboard. With no admin yet the house is in **setup mode** and the
+Admin panel is open to anyone:
+
+1. **Create the admin** (name + password). Use your existing name to promote
+   yourself.
+2. **Faces tab** — stand in front of the camera and press Capture ~10 times.
+   From now on, admin login needs the password *and* your face on camera.
+3. **Devices tab** — "Add a demo house" for a full set of simulated devices, or
+   add your own.
+4. **People & access** — add household members with a role, then enroll their
+   faces.
+
+Faces can also be enrolled from a folder of photos:
 
 ```powershell
+python scripts/capture_faces.py --name "Samuel"      # backend must be stopped (camera)
 python scripts/enroll_face.py --name "Samuel" --images data/faces/samuel
 ```
 
 Only the embedding vector is stored — never the photograph. That follows directly
 from the FaceNet approach (Schroff et al., 2015) and is the project's main privacy
 property.
+
+## Roles and camera-checked control
+
+Every device button is checked against **whoever the camera in that device's
+room can see** (`app/access.py`, `app/api/routes_devices.py`). Nobody
+recognized, or the person isn't allowed → refused, logged as `access_denied`,
+and a notification is raised. A logged-in admin skips the camera check.
+
+| Role | Lights | Plugs / TV | AC | Door lock | Garage |
+|---|---|---|---|---|---|
+| admin | ✓ | ✓ | ✓ | ✓ | ✓ |
+| adult | ✓ | ✓ | ✓ | ✓ | ✓ |
+| child | ✓ | ✓ | ✗ | ✗ | ✗ |
+| guest | ✓ | ✗ | ✗ | ✗ | ✗ |
+
+An admin can override any cell per person, for a whole kind or for a single
+device. Lookup order: device rule > kind rule > role default.
+
+**Arrival preferences.** Each person can have devices set when they arrive
+(e.g. living-room light at 40%, AC cooling to 70°F). Only devices that person
+is allowed to use are applied. With none saved, arriving turns on the lights in
+the room where they were seen. When the last person leaves, lights, plugs and
+the AC are switched off.
+
+**Several cameras.** `CAMERAS=front_door:Entry:0,garage:Garage:1` runs one
+pipeline per camera; a device is checked by the camera whose room matches its
+own, falling back to the first camera.
+
+## Simulated devices
+
+Devices run **inside the backend** until real hardware exists — no broker
+needed (`app/iot/simulator.py`). Lights dim, the AC pulls the room temperature
+toward its target over time, the garage takes a few seconds to open, motion
+clears on its own, and sensors can be triggered from the dashboard.
+
+When a real device arrives, switch it from Simulated to Real in Admin → Devices.
+It keeps its id, so its permissions and preferences carry over, and commands
+start going to `homeai/device/<id>/set` over MQTT instead.
+
+## Face recognition tuning
+
+| Stage | What it does | Setting |
+|---|---|---|
+| Detection | MTCNN instead of Haar; faces below a confidence are ignored | `FACE_MIN_CONFIDENCE` |
+| Quality gate | Too-small or blurry faces are skipped, not guessed at | `FACE_MIN_SIZE`, `FACE_MIN_SHARPNESS` |
+| Alignment | Face rotated so the eyes are level before embedding | — |
+| Match | Nearest enrolled face must be within the threshold… | `FACE_MATCH_THRESHOLD` |
+| Margin | …and clearly closer than the next-closest person | `FACE_MATCH_MARGIN` |
+| Voting | 3 of the last 5 frames must agree before a track is trusted | `FACE_VOTES_REQUIRED`, `FACE_VOTE_WINDOW` |
+
+Measured on the 10 enrolled photos, alignment cut the average same-person
+cosine distance from 0.311 (Haar) to 0.173, and the worst pair from 0.540 to
+0.302 — so the threshold could drop from 0.6 to 0.45. Embeddings store the
+cropper they were made with (`facenet-vggface2/mtcnn`); changing the cropper
+means re-enrolling.
 
 ## Testing without hardware
 
@@ -134,13 +204,13 @@ Assistant, and mirrors how Frigate exposes its detections.
 
 | # | Requirement | Status |
 |---|---|---|
-| 1 | Camera + multiple IoT devices connected | Scaffolded (simulated devices) |
+| 1 | Camera + multiple IoT devices connected | Simulated devices in-backend; real hardware pending |
 | 2 | Capture and process live feeds | Done (`vision/camera.py`) |
-| 3 | Detect people and basic events | Interface done; YOLO pending (Week 3) |
-| 4 | Facial recognition for registered members | Flow done; FaceNet pending (Week 3) |
+| 3 | Detect people and basic events | Done (YOLO11 + tracking) |
+| 4 | Facial recognition for registered members | Done (MTCNN + FaceNet, voting) |
 | 5 | Identify entering/leaving | Done (`track_presence` / `expire_presence`) |
 | 6 | Store event logs | Done (`EventLog`) |
 | 7 | Notifications | In-app sink done; external delivery pending |
 | 8 | Dashboard | Done |
-| 9 | AI-driven automation actions | Rules engine done, 3 rules |
+| 9 | AI-driven automation actions | Per-person arrival preferences, role-based access |
 | 10 | End-to-end communication | Demonstrable with `fake_device.py` |

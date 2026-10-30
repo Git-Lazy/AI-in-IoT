@@ -19,14 +19,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 
 from app import __version__
-from app.api import routes_devices, routes_events, routes_people, routes_stream
+from app.api import routes_admin, routes_devices, routes_events, routes_people, routes_stream
 from app.api.schemas import HealthOut
 from app.automation import expire_presence, register_handlers
 from app.config import PROJECT_ROOT, settings
 from app.db import init_db
 from app.events import Event, EventType, bus
 from app.iot import mqtt_bridge
-from app.vision import VisionPipeline
+from app.iot.simulator import simulator
+from app.vision import cameras
 
 logging.basicConfig(
     level=settings.log_level,
@@ -58,17 +59,11 @@ async def lifespan(app: FastAPI):
     routes_stream.register_broadcast()
 
     mqtt_bridge.start()
+    simulator.load()
+    simulator.start()
 
-    app.state.pipeline = None
     if settings.vision_enabled:
-        try:
-            pipeline = VisionPipeline()
-            pipeline.start()
-            app.state.pipeline = pipeline
-        except Exception as exc:
-            # No camera attached yet is a normal Week-2 state; the rest of the
-            # platform stays usable so API and MQTT work can continue.
-            log.warning("vision pipeline not started: %s", exc)
+        cameras.start()
 
     sweeper = asyncio.create_task(_presence_sweeper())
     await bus.publish(Event(type=EventType.SYSTEM, source="backend", payload={"state": "online"}))
@@ -77,8 +72,8 @@ async def lifespan(app: FastAPI):
 
     log.info("shutting down")
     sweeper.cancel()
-    if app.state.pipeline is not None:
-        app.state.pipeline.stop()
+    await simulator.stop()
+    cameras.stop()
     mqtt_bridge.stop()
 
 
@@ -96,6 +91,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(routes_admin.router)
 app.include_router(routes_people.router)
 app.include_router(routes_devices.router)
 app.include_router(routes_events.router)
@@ -108,7 +104,7 @@ def health():
         status="ok",
         version=__version__,
         mqtt_connected=mqtt_bridge.connected,
-        vision_running=app.state.pipeline is not None,
+        vision_running=cameras.running,
         detector_backend=settings.detector_backend,
         recognizer_backend=settings.recognizer_backend,
     )

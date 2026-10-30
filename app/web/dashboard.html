@@ -6,52 +6,92 @@
   <title>Home AI — Dashboard</title>
   <style>
     :root {
-      --bg: #0f1216; --panel: #171b21; --line: #272d36;
-      --text: #e6e9ee; --muted: #8b95a5; --accent: #4da3ff; --warn: #ffb020; --ok: #37d67a;
+      --bg: #0f1216; --panel: #171b21; --panel2: #1d222a; --line: #272d36;
+      --text: #e6e9ee; --muted: #8b95a5; --accent: #4da3ff; --warn: #ffb020; --ok: #37d67a; --bad: #ff5d5d;
       font-family: ui-sans-serif, system-ui, "Segoe UI", sans-serif;
     }
     * { box-sizing: border-box; }
     body { margin: 0; background: var(--bg); color: var(--text); }
     header {
-      display: flex; align-items: center; gap: 16px;
-      padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--panel);
+      display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+      padding: 12px 20px; border-bottom: 1px solid var(--line); background: var(--panel);
     }
-    header h1 { font-size: 16px; margin: 0; font-weight: 600; letter-spacing: .2px; }
+    header h1 { font-size: 16px; margin: 0 6px 0 0; font-weight: 600; letter-spacing: .2px; }
+    header .spacer { flex: 1; }
     .pill { font-size: 12px; padding: 3px 9px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); }
     .pill.on { color: var(--ok); border-color: #1f5c3a; }
     .pill.off { color: var(--warn); border-color: #5c4a1f; }
-    main { display: grid; grid-template-columns: 1.15fr 1fr; gap: 16px; padding: 16px; }
-    @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+    main { display: grid; grid-template-columns: 1fr 1.15fr; gap: 16px; padding: 16px; }
+    @media (max-width: 960px) { main { grid-template-columns: 1fr; } }
+    .col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
     section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
     section h2 {
-      margin: 0; padding: 11px 14px; font-size: 13px; font-weight: 600;
+      margin: 0; padding: 11px 14px; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px;
       border-bottom: 1px solid var(--line); color: var(--muted); text-transform: uppercase; letter-spacing: .6px;
     }
-    .body { padding: 12px 14px; max-height: 340px; overflow-y: auto; }
+    section h2 .right { margin-left: auto; text-transform: none; letter-spacing: 0; font-weight: 400; }
+    .body { padding: 12px 14px; }
+    .scroll { max-height: 320px; overflow-y: auto; }
     .feed div { padding: 7px 0; border-bottom: 1px dashed var(--line); font-size: 13px; }
     .feed div:last-child { border-bottom: 0; }
     .t { color: var(--muted); font-variant-numeric: tabular-nums; margin-right: 8px; font-size: 12px; }
     .type { color: var(--accent); font-weight: 600; }
     .type.alert { color: var(--warn); }
+    .type.bad { color: var(--bad); }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    td { padding: 7px 4px; border-bottom: 1px solid var(--line); }
+    th { text-align: left; color: var(--muted); font-weight: 500; font-size: 12px; padding: 6px 4px; border-bottom: 1px solid var(--line); }
+    td { padding: 7px 4px; border-bottom: 1px solid var(--line); vertical-align: middle; }
     tr:last-child td { border-bottom: 0; }
-    button {
+    button, select, input {
       background: #202733; color: var(--text); border: 1px solid var(--line);
-      border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer;
+      border-radius: 6px; padding: 5px 10px; font-size: 13px; font-family: inherit;
     }
-    button:hover { border-color: var(--accent); }
+    input[type=range] { padding: 0; background: none; border: 0; accent-color: var(--accent); }
+    button { cursor: pointer; }
+    button:hover:not(:disabled) { border-color: var(--accent); }
+    button:disabled { opacity: .5; cursor: default; }
+    button.primary { background: #1d3b5e; border-color: #2d5a8c; }
+    button.danger:hover { border-color: var(--bad); color: var(--bad); }
+    button.on { background: #1c3a2a; border-color: #2f6b49; color: var(--ok); }
     img#preview { width: 100%; display: block; background: #000; min-height: 180px; }
-    .empty { color: var(--muted); font-size: 13px; padding: 6px 0; }
-    .enroll { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-    .enroll input {
-      flex: 1; min-width: 140px; background: #0f1216; color: var(--text);
-      border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px; font-size: 13px;
-    }
-    .enroll button { padding: 6px 14px; font-size: 13px; }
-    .hint { color: var(--muted); font-size: 12px; margin-top: 8px; }
-    #enroll-status.ok { color: var(--ok); }
-    #enroll-status.err { color: var(--warn); }
+    .empty, .hint { color: var(--muted); font-size: 13px; }
+    .hint { font-size: 12px; margin-top: 8px; }
+    .ok { color: var(--ok); } .err { color: var(--warn); } .bad { color: var(--bad); }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .row input:not([type=range]):not([type=checkbox]) { flex: 1; min-width: 120px; }
+
+    /* devices */
+    .room { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin: 12px 0 6px; }
+    .room:first-child { margin-top: 0; }
+    .devices { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
+    .dev { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+    .dev .top { display: flex; align-items: baseline; gap: 6px; }
+    .dev .name { font-weight: 600; font-size: 14px; }
+    .badge { font-size: 10px; padding: 1px 6px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); margin-left: auto; white-space: nowrap; }
+    .badge.sim { color: #b89bff; border-color: #4a3b73; }
+    .dev .state { font-size: 13px; color: var(--muted); }
+    .dev .big { font-size: 22px; color: var(--text); font-variant-numeric: tabular-nums; }
+    .dev .controls { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+    .dev .controls input[type=range] { flex: 1; min-width: 80px; }
+    #cmd-status { min-height: 18px; margin: 0 0 8px; font-size: 13px; }
+
+    /* admin */
+    #admin { margin: 0 16px 16px; }
+    .tabs { display: flex; gap: 4px; padding: 8px 10px 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+    .tabs button { border-radius: 6px 6px 0 0; border-bottom: 0; background: transparent; color: var(--muted); }
+    .tabs button.active { background: var(--panel2); color: var(--text); border-color: var(--line); }
+    .tab { display: none; } .tab.active { display: block; }
+    .matrix select { padding: 3px 4px; font-size: 12px; }
+    .allow { color: var(--ok); } .block { color: var(--bad); }
+    .chip { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 99px; background: var(--panel2); border: 1px solid var(--line); margin: 2px 4px 2px 0; }
+    .wrap { overflow-x: auto; }
+    h3 { font-size: 13px; margin: 16px 0 8px; color: var(--muted); font-weight: 600; }
+    h3:first-child { margin-top: 0; }
+
+    dialog { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 18px; width: min(360px, 92vw); }
+    dialog::backdrop { background: rgba(0,0,0,.55); }
+    dialog h2 { margin: 0 0 12px; font-size: 15px; }
+    dialog .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; font-size: 12px; color: var(--muted); }
   </style>
 </head>
 <body>
@@ -61,171 +101,391 @@
     <span class="pill" id="s-mqtt">mqtt</span>
     <span class="pill" id="s-vision">vision</span>
     <span class="pill" id="s-model">model</span>
+    <span class="spacer"></span>
+    <span id="admin-who" class="hint" style="margin:0"></span>
+    <button id="login-btn" onclick="openLogin()">Admin login</button>
+    <button id="logout-btn" onclick="logout()" style="display:none">Log out</button>
   </header>
 
   <main>
-    <div style="display:flex; flex-direction:column; gap:16px;">
+    <div class="col">
       <section>
-        <h2>Camera</h2>
+        <h2>Camera
+          <span class="right"><select id="camera-pick" onchange="pickCamera()" style="display:none"></select></span>
+        </h2>
         <img id="preview" src="/stream/preview" alt="camera preview"
              onerror="this.style.display='none'" />
-      </section>
-      <section>
-        <h2>Enroll a face</h2>
-        <div class="body">
-          <div class="enroll">
-            <input id="enroll-name" placeholder="Name, e.g. Samuel" />
-            <button id="enroll-btn" onclick="captureFace()">Capture</button>
-          </div>
-          <div class="hint" id="enroll-status">
-            Look at the camera and press Capture. Aim for about 10: straight on,
-            turned a little left and right, chin up and down, and a couple from farther back.
-          </div>
-        </div>
+        <div class="body" id="at-camera"><span class="hint" style="margin:0">camera starting…</span></div>
       </section>
       <section>
         <h2>Live events</h2>
-        <div class="body feed" id="feed"><div class="empty">waiting for events…</div></div>
+        <div class="body feed scroll" id="feed"><div class="empty">waiting for events…</div></div>
       </section>
     </div>
 
-    <div style="display:flex; flex-direction:column; gap:16px;">
+    <div class="col">
+      <section>
+        <h2>Devices <span class="right hint" style="margin:0">checked against whoever the camera sees</span></h2>
+        <div class="body">
+          <div id="cmd-status"></div>
+          <div id="devices"><div class="empty">no devices yet</div></div>
+        </div>
+      </section>
       <section>
         <h2>Household</h2>
         <div class="body"><table id="people"></table></div>
       </section>
       <section>
-        <h2>Devices</h2>
-        <div class="body"><table id="devices"></table></div>
-      </section>
-      <section>
         <h2>Notifications</h2>
-        <div class="body feed" id="notes"><div class="empty">none yet</div></div>
+        <div class="body feed scroll" id="notes"><div class="empty">none yet</div></div>
       </section>
     </div>
   </main>
 
+  <!-- Admin area: first-run setup, or the admin tools once logged in. -->
+  <section id="admin" style="display:none">
+    <h2>Admin</h2>
+
+    <div id="setup" class="body" style="display:none">
+      <h3>Create the admin account</h3>
+      <p class="hint">Nobody is admin yet, so everything is open. Create the admin, then enroll
+        the admin's face in the <b>Faces</b> tab — after that, logging in needs the password
+        <i>and</i> your face on camera.</p>
+      <div class="row">
+        <input id="setup-name" placeholder="Your name (e.g. Samuel)" />
+        <input id="setup-pass" type="password" placeholder="Password (6+ characters)" />
+        <button class="primary" onclick="setupAdmin()">Create admin</button>
+      </div>
+      <div class="hint" id="setup-status"></div>
+    </div>
+
+    <div id="admin-tools" style="display:none">
+      <div class="tabs">
+        <button data-tab="t-access" class="active" onclick="showTab(this)">People &amp; access</button>
+        <button data-tab="t-prefs" onclick="showTab(this)">Arrival preferences</button>
+        <button data-tab="t-devices" onclick="showTab(this)">Devices</button>
+        <button data-tab="t-faces" onclick="showTab(this)">Faces</button>
+      </div>
+
+      <div id="t-access" class="tab active body">
+        <h3>What each person can control</h3>
+        <div class="wrap"><table class="matrix" id="access-table"></table></div>
+        <p class="hint">"default" follows the person's role. Allow / Block overrides it for every
+          device of that kind. Admins can always control everything.</p>
+
+        <h3>Exceptions for one device</h3>
+        <div class="row">
+          <select id="ex-person"></select>
+          <select id="ex-device"></select>
+          <select id="ex-allowed">
+            <option value="false">Block</option>
+            <option value="true">Allow</option>
+            <option value="reset">Reset to default</option>
+          </select>
+          <button onclick="saveException()">Apply</button>
+        </div>
+        <div id="ex-list" class="hint"></div>
+
+        <h3>Add a person</h3>
+        <div class="row">
+          <input id="new-person" placeholder="Name" />
+          <select id="new-role">
+            <option value="adult">adult</option>
+            <option value="child">child</option>
+            <option value="guest">guest</option>
+          </select>
+          <button onclick="addPerson()">Add</button>
+        </div>
+        <div class="hint">Then enroll their face in the <b>Faces</b> tab so the cameras know them.</div>
+      </div>
+
+      <div id="t-prefs" class="tab body">
+        <div class="row">
+          <span class="hint" style="margin:0">When</span>
+          <select id="pref-person" onchange="renderPrefs()"></select>
+          <span class="hint" style="margin:0">arrives home, set:</span>
+        </div>
+        <div class="wrap" style="margin-top:10px"><table id="pref-table"></table></div>
+        <p class="hint">Only devices the person is allowed to use are applied. With nothing
+          saved, arriving turns on the lights in the room where they were seen.</p>
+      </div>
+
+      <div id="t-devices" class="tab body">
+        <h3>Add a device</h3>
+        <div class="row">
+          <input id="dev-name" placeholder="Name (e.g. Bedroom Lamp)" />
+          <select id="dev-kind"></select>
+          <input id="dev-room" placeholder="Room (e.g. Bedroom)" />
+          <select id="dev-transport">
+            <option value="simulated">Simulated</option>
+            <option value="mqtt">Real (MQTT)</option>
+          </select>
+          <button class="primary" onclick="addDevice()">Add</button>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <button onclick="addDemo()">Add a demo house</button>
+          <span class="hint" style="margin:0">lights, AC, lock, garage, TV, and sensors — all simulated</span>
+        </div>
+        <div class="hint" id="dev-status"></div>
+        <h3>Registered devices</h3>
+        <div class="wrap"><table id="dev-table"></table></div>
+        <p class="hint">A device is access-checked by the camera in its room. Simulate a device
+          until the real one is wired up, then switch it to Real — it keeps its id, so permissions
+          and preferences carry over.</p>
+      </div>
+
+      <div id="t-faces" class="tab body">
+        <div class="row">
+          <select id="face-person"></select>
+          <button class="primary" id="enroll-btn" onclick="captureFace()">Capture</button>
+          <button class="danger" onclick="clearFaces()">Forget faces</button>
+        </div>
+        <div class="hint" id="enroll-status">
+          Look at the camera and press Capture. Aim for about 10: straight on, turned a little left
+          and right, chin up and down, and a couple from where you'd normally stand.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <dialog id="login">
+    <h2>Admin login</h2>
+    <div class="field">Name <input id="login-name" autocomplete="username" /></div>
+    <div class="field">Password <input id="login-pass" type="password" autocomplete="current-password" /></div>
+    <div class="hint" id="login-status" style="margin-bottom:10px">Look at the camera — your face is checked too.</div>
+    <div class="row" style="justify-content:flex-end">
+      <button onclick="$('login').close()">Cancel</button>
+      <button class="primary" id="login-go" onclick="login()">Log in</button>
+    </div>
+  </dialog>
+
 <script>
 const $ = (id) => document.getElementById(id);
 const time = (iso) => new Date(iso).toLocaleTimeString();
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const ALERTS = new Set(["unknown_person", "presence_left"]);
+const BAD = new Set(["access_denied"]);
+const CONTROLLABLE = ["light", "switch", "thermostat", "lock", "garage"];
 
-function setPill(el, ok, label) {
-  el.textContent = label;
-  el.className = "pill " + (ok ? "on" : "off");
+const store = {
+  get(k) { try { return sessionStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { v == null ? sessionStorage.removeItem(k) : sessionStorage.setItem(k, v); } catch {} },
+};
+
+let token = store.get("admin-token");
+let status = { setup_required: false, admin: null };
+let devices = [];
+let kinds = {};
+let roles = null;
+let adminPeople = [];
+let camera = null;
+
+// ------------------------------------------------------------------ api
+
+async function api(path, opts = {}) {
+  const headers = { ...(opts.body ? { "Content-Type": "application/json" } : {}) };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const r = await fetch(path, {
+    ...opts, headers,
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+  if (r.status === 401 && token) { token = null; store.set("admin-token", null); refreshAdmin(); }
+  const data = r.status === 204 ? null : await r.json().catch(() => null);
+  if (!r.ok) {
+    const d = data && data.detail;
+    throw new Error(typeof d === "string" ? d : (d ? d.map((x) => x.msg).join("; ") : r.statusText));
+  }
+  return data;
 }
+
+function say(el, text, cls = "") { el.className = "hint " + cls; el.textContent = text; }
+
+function setPill(el, ok, label) { el.textContent = label; el.className = "pill " + (ok ? "on" : "off"); }
 
 async function loadHealth() {
   try {
-    const h = await (await fetch("/api/health")).json();
+    const h = await api("/api/health");
     setPill($("s-mqtt"), h.mqtt_connected, "mqtt " + (h.mqtt_connected ? "up" : "down"));
     setPill($("s-vision"), h.vision_running, "vision " + (h.vision_running ? "running" : "off"));
-    setPill($("s-model"), h.detector_backend !== "stub",
-            h.detector_backend + " / " + h.recognizer_backend);
+    setPill($("s-model"), h.detector_backend !== "stub", h.detector_backend + " / " + h.recognizer_backend);
   } catch { /* backend restarting */ }
 }
 
+// --------------------------------------------------------------- cameras
+
+async function loadCameras() {
+  let cams = [];
+  try { cams = await api("/api/cameras"); } catch { return; }
+  const pick = $("camera-pick");
+  if (cams.length > 1 && pick.options.length !== cams.length) {
+    pick.innerHTML = cams.map((c) => `<option value="${esc(c.name)}">${esc(c.name)} (${esc(c.room)})</option>`).join("");
+    pick.style.display = "";
+  }
+  camera = camera || (cams[0] && cams[0].name);
+  const cam = cams.find((c) => c.name === camera);
+  $("at-camera").innerHTML = !cam
+    ? '<span class="hint" style="margin:0">no camera running</span>'
+    : `<span class="hint" style="margin:0">${esc(cam.name)} · ${esc(cam.room || "no room")} — at this camera:</span>
+       ${cam.present.length ? cam.present.map((n) => `<span class="chip ok">${esc(n)}</span>`).join("")
+                            : '<span class="hint" style="margin:0">nobody recognized</span>'}`;
+}
+
+function pickCamera() {
+  camera = $("camera-pick").value;
+  const img = $("preview");
+  img.style.display = "";
+  img.src = `/stream/preview?camera=${encodeURIComponent(camera)}`;
+  loadCameras();
+}
+
+// --------------------------------------------------------------- devices
+
+async function loadDevices() {
+  devices = await api("/api/devices");
+  renderDevices();
+  if (isAdmin()) renderAdmin();
+}
+
+function renderDevices() {
+  const box = $("devices");
+  // Don't redraw under the user's finger -- a live state update would reset the slider.
+  const focus = document.activeElement;
+  if (box.contains(focus) && (focus.tagName === "INPUT" || focus.tagName === "SELECT")) return;
+  if (!devices.length) {
+    box.innerHTML = `<div class="empty">no devices yet${isAdmin() || status.setup_required
+      ? " — add some in Admin → Devices" : ""}</div>`;
+    return;
+  }
+  const rooms = {};
+  for (const d of devices) (rooms[d.room || "Unassigned"] ||= []).push(d);
+  box.innerHTML = Object.entries(rooms).map(([room, list]) =>
+    `<div class="room">${esc(room)}</div><div class="devices">${list.map(deviceCard).join("")}</div>`
+  ).join("");
+}
+
+function deviceCard(d) {
+  const s = d.state || {};
+  const id = esc(d.id);
+  const badge = d.transport === "simulated"
+    ? '<span class="badge sim">simulated</span>'
+    : `<span class="badge">${d.online ? "real · online" : "real · offline"}</span>`;
+  let state = "", controls = "";
+
+  switch (d.kind) {
+    case "light":
+      state = s.state === "ON" ? `<span class="ok">On</span> · ${s.brightness ?? 100}%` : "Off";
+      controls = `<button class="${s.state === "ON" ? "on" : ""}" onclick="cmd('${id}', {state: 'TOGGLE'})">${s.state === "ON" ? "Turn off" : "Turn on"}</button>
+        <input type="range" min="0" max="100" step="5" value="${s.brightness ?? 100}"
+               title="dim" onchange="cmd('${id}', {brightness: +this.value})" />`;
+      break;
+    case "switch":
+      state = s.state === "ON" ? '<span class="ok">On</span>' : "Off";
+      controls = `<button class="${s.state === "ON" ? "on" : ""}" onclick="cmd('${id}', {state: 'TOGGLE'})">${s.state === "ON" ? "Turn off" : "Turn on"}</button>`;
+      break;
+    case "thermostat":
+      state = `<span class="big">${s.current ?? "–"}°F</span> room · set to ${s.target ?? "–"}°F · ${esc(s.mode || "off")}`;
+      controls = `<select onchange="cmd('${id}', {mode: this.value})">
+          ${["off", "cool", "heat", "auto"].map((m) => `<option ${m === s.mode ? "selected" : ""}>${m}</option>`).join("")}
+        </select>
+        <button onclick="cmd('${id}', {target: ${(s.target ?? 72) - 1}})">−</button>
+        <button onclick="cmd('${id}', {target: ${(s.target ?? 72) + 1}})">+</button>`;
+      break;
+    case "lock": {
+      const locked = s.state === "LOCKED";
+      state = locked ? '<span class="ok">Locked</span>' : '<span class="err">Unlocked</span>';
+      controls = `<button onclick="cmd('${id}', {state: '${locked ? "UNLOCKED" : "LOCKED"}'})">${locked ? "Unlock" : "Lock"}</button>`;
+      break;
+    }
+    case "garage": {
+      const open = s.state === "OPEN" || s.state === "OPENING";
+      state = { OPEN: '<span class="err">Open</span>', CLOSED: '<span class="ok">Closed</span>' }[s.state] || esc((s.state || "").toLowerCase() + "…");
+      controls = `<button onclick="cmd('${id}', {state: '${open ? "CLOSED" : "OPEN"}'})">${open ? "Close" : "Open"}</button>`;
+      break;
+    }
+    case "motion_sensor":
+      state = s.motion ? '<span class="err">Motion!</span>' : "Clear";
+      if (d.transport === "simulated" && (isAdmin() || status.setup_required))
+        controls = `<button onclick="simulate('${id}')">Simulate motion</button>`;
+      break;
+    case "contact_sensor":
+      state = s.contact === "open" ? '<span class="err">Open</span>' : '<span class="ok">Closed</span>';
+      if (d.transport === "simulated" && (isAdmin() || status.setup_required))
+        controls = `<button onclick="simulate('${id}')">Simulate ${s.contact === "open" ? "closing" : "opening"}</button>`;
+      break;
+    case "temperature_sensor":
+      state = `<span class="big">${s.temperature ?? "–"}°F</span> · ${s.humidity ?? "–"}% humidity`;
+      break;
+    default:
+      state = esc(JSON.stringify(s));
+  }
+  return `<div class="dev">
+    <div class="top"><span class="name">${esc(d.name)}</span>${badge}</div>
+    <div class="state">${state}</div>
+    ${controls ? `<div class="controls">${controls}</div>` : ""}
+  </div>`;
+}
+
+async function cmd(id, payload) {
+  document.activeElement.blur();          // let live updates redraw the card again
+  const el = $("cmd-status");
+  say(el, "checking who's at the camera…");
+  try {
+    const r = await api(`/api/devices/${encodeURIComponent(id)}/command`, { method: "POST", body: { payload } });
+    say(el, r.via === "camera" ? `Done — ${r.by} is allowed.` : `Done (${r.via}).`, "ok");
+  } catch (e) {
+    say(el, e.message, "bad");
+  }
+}
+
+async function simulate(id) {
+  try { await api(`/api/devices/${encodeURIComponent(id)}/simulate`, { method: "POST", body: {} }); }
+  catch (e) { say($("cmd-status"), e.message, "bad"); }
+}
+
+// ---------------------------------------------------------- people / feed
+
 async function loadPeople() {
-  const rows = await (await fetch("/api/people")).json();
+  const rows = await api("/api/people");
   const t = $("people");
   t.innerHTML = rows.length ? "" : '<tr><td class="empty">no one registered yet</td></tr>';
   for (const p of rows) {
     t.insertAdjacentHTML("beforeend",
-      `<tr><td>${p.name}</td>
-           <td style="color:${p.is_home ? 'var(--ok)' : 'var(--muted)'}">
-             ${p.is_home ? "home" : "away"}</td>
+      `<tr><td>${esc(p.name)}</td>
+           <td style="color:var(--muted)">${esc(p.role)}</td>
+           <td style="color:${p.is_home ? "var(--ok)" : "var(--muted)"}">${p.is_home ? "home" : "away"}</td>
            <td style="color:var(--muted)">${p.last_seen ? time(p.last_seen) : "—"}</td></tr>`);
   }
 }
 
-async function captureFace() {
-  const name = $("enroll-name").value.trim();
-  const status = $("enroll-status");
-  const btn = $("enroll-btn");
-  if (!name) { status.className = "hint err"; status.textContent = "Type a name first."; return; }
-
-  btn.disabled = true;
-  try {
-    // Find the person, or register them on their first capture.
-    const people = await (await fetch("/api/people")).json();
-    let person = people.find((p) => p.name.toLowerCase() === name.toLowerCase());
-    if (!person) {
-      const r = await fetch("/api/people", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
-      });
-      if (!r.ok) throw new Error((await r.json()).detail || "could not create person");
-      person = await r.json();
-      loadPeople();
-    }
-
-    const r = await fetch(`/api/people/${person.id}/faces/capture`, { method: "POST" });
-    const body = await r.json();
-    if (!r.ok) throw new Error(body.detail || "capture failed");
-    status.className = "hint ok";
-    status.textContent = `Captured. ${body.name} now has ${body.faces_enrolled} face(s) enrolled.`;
-  } catch (e) {
-    status.className = "hint err";
-    status.textContent = e.message === "no face found in image"
-      ? "No face found. Face the camera directly, with more light."
-      : e.message;
-  } finally {
-    btn.disabled = false;
-  }
-}
-
-$("enroll-name").addEventListener("keydown", (e) => { if (e.key === "Enter") captureFace(); });
-
-async function loadDevices() {
-  const rows = await (await fetch("/api/devices")).json();
-  const t = $("devices");
-  t.innerHTML = rows.length ? "" : '<tr><td class="empty">no devices registered yet</td></tr>';
-  for (const d of rows) {
-    const on = (d.state && d.state.state) || (d.online ? "online" : "offline");
-    t.insertAdjacentHTML("beforeend",
-      `<tr><td>${d.name}</td>
-           <td style="color:var(--muted)">${d.room || d.kind}</td>
-           <td>${on}</td>
-           <td><button onclick="toggle('${d.id}','ON')">on</button>
-               <button onclick="toggle('${d.id}','OFF')">off</button></td></tr>`);
-  }
-}
-
-async function toggle(id, state) {
-  await fetch(`/api/devices/${id}/command`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ payload: { state } }),
-  });
-}
-
 async function loadNotifications() {
-  const rows = await (await fetch("/api/notifications")).json();
+  const rows = await api("/api/notifications");
   const box = $("notes");
   box.innerHTML = rows.length ? "" : '<div class="empty">none yet</div>';
   for (const n of rows) {
     box.insertAdjacentHTML("beforeend",
-      `<div><span class="t">${time(n.timestamp)}</span>${n.message}</div>`);
+      `<div><span class="t">${time(n.timestamp)}</span><span class="${n.priority === "high" ? "err" : ""}">${esc(n.message)}</span></div>`);
   }
 }
 
 function addEvent(ev) {
   const box = $("feed");
   if (box.querySelector(".empty")) box.innerHTML = "";
-  const cls = ALERTS.has(ev.type) ? "type alert" : "type";
-  const detail = ev.payload && ev.payload.name
-    ? ev.payload.name
-    : (ev.device_id || ev.source);
+  const cls = BAD.has(ev.type) ? "type bad" : ALERTS.has(ev.type) ? "type alert" : "type";
+  const p = ev.payload || {};
+  let detail = p.name || ev.device_id || ev.source;
+  if (ev.type.startsWith("access")) detail = `${p.name} → ${p.device} (${p.reason})`;
+  if (ev.type === "device_command") detail = `${ev.device_id}${p.by ? " by " + p.by : ""}`;
   box.insertAdjacentHTML("afterbegin",
-    `<div><span class="t">${time(ev.timestamp)}</span>
-          <span class="${cls}">${ev.type}</span> — ${detail}</div>`);
+    `<div><span class="t">${time(ev.timestamp)}</span><span class="${cls}">${esc(ev.type)}</span> — ${esc(detail)}</div>`);
   while (box.children.length > 100) box.lastChild.remove();
 
   if (ev.type.startsWith("presence")) loadPeople();
-  if (ev.type === "device_state") loadDevices();
-  if (ev.type === "unknown_person" || ev.type.startsWith("presence")) loadNotifications();
+  if (["unknown_person", "access_denied"].includes(ev.type) || ev.type.startsWith("presence")) loadNotifications();
 }
+
+// We hide noisy event types from the feed; they still reach the database.
+const QUIET = new Set(["person_seen", "sensor_reading", "device_state"]);
 
 function connect() {
   const ws = new WebSocket(`ws://${location.host}/ws/events`);
@@ -233,15 +493,325 @@ function connect() {
     setPill($("s-ws"), true, "connected");
     setInterval(() => ws.readyState === 1 && ws.send("ping"), 20000);
   };
-  ws.onmessage = (m) => addEvent(JSON.parse(m.data));
+  ws.onmessage = (m) => {
+    const ev = JSON.parse(m.data);
+    if (QUIET.has(ev.type)) {
+      // Still keep the device cards live.
+      const d = devices.find((x) => x.id === ev.device_id);
+      if (d) { const { kind, ...state } = ev.payload || {}; d.state = state; renderDevices(); }
+      else if (ev.device_id) loadDevices();
+      return;
+    }
+    addEvent(ev);
+  };
   ws.onclose = () => {
     setPill($("s-ws"), false, "reconnecting");
     setTimeout(connect, 2000);
   };
 }
 
-loadHealth(); loadPeople(); loadDevices(); loadNotifications(); connect();
-setInterval(loadHealth, 10000);
+// ----------------------------------------------------------------- admin
+
+const isAdmin = () => !!status.admin;
+
+async function refreshAdmin() {
+  try { status = await api("/api/admin/status"); } catch { return; }
+  if (!status.admin && token) { token = null; store.set("admin-token", null); }
+  $("login-btn").style.display = status.admin || status.setup_required ? "none" : "";
+  $("logout-btn").style.display = status.admin ? "" : "none";
+  $("admin-who").textContent = status.admin ? `Admin: ${status.admin.name}`
+    : status.setup_required ? "Setup mode — no admin yet" : "";
+  $("admin").style.display = status.admin || status.setup_required ? "" : "none";
+  $("setup").style.display = status.setup_required ? "" : "none";
+  // Setup mode can enroll faces (the admin's own) before the admin exists.
+  $("admin-tools").style.display = status.admin || status.setup_required ? "" : "none";
+  if (status.admin || status.setup_required) await loadAdminData();
+  renderDevices();
+}
+
+async function loadAdminData() {
+  [roles, kinds] = await Promise.all([api("/api/admin/roles"), api("/api/devices/kinds")]);
+  try { adminPeople = await api("/api/admin/people"); } catch { adminPeople = []; }
+  $("dev-kind").innerHTML = Object.entries(kinds)
+    .map(([k, v]) => `<option value="${k}">${esc(v.label)}</option>`).join("");
+  renderAdmin();
+}
+
+function renderAdmin() {
+  if (!roles) return;
+  const personOpts = (sel) => adminPeople.map((p) =>
+    `<option value="${p.id}" ${String(p.id) === sel ? "selected" : ""}>${esc(p.name)}</option>`).join("");
+  for (const id of ["ex-person", "pref-person", "face-person"]) {
+    const keep = $(id).value;
+    $(id).innerHTML = personOpts(keep);
+  }
+  const controllable = devices.filter((d) => CONTROLLABLE.includes(d.kind));
+  $("ex-device").innerHTML = controllable.map((d) => `<option value="${esc(d.id)}">${esc(d.name)}</option>`).join("");
+
+  // People x kinds matrix.
+  const ks = Object.keys(roles.kinds);
+  $("access-table").innerHTML = `<tr><th>Person</th><th>Role</th>${ks.map((k) => `<th>${esc(roles.kinds[k])}</th>`).join("")}<th>Faces</th><th></th></tr>` +
+    adminPeople.map((p) => {
+      const cells = ks.map((k) => {
+        if (p.role === "admin") return '<td class="allow">✓ always</td>';
+        const rule = p.rules[`kind:${k}`];
+        const def = roles.defaults[p.role][k] ? "✓" : "✗";
+        const val = rule === undefined ? "default" : rule ? "allow" : "block";
+        return `<td><select class="${val === "allow" ? "allow" : val === "block" ? "block" : ""}"
+                  onchange="setKind(${p.id}, '${k}', this.value)">
+          <option value="default" ${val === "default" ? "selected" : ""}>default ${def}</option>
+          <option value="allow" ${val === "allow" ? "selected" : ""}>allow</option>
+          <option value="block" ${val === "block" ? "selected" : ""}>block</option></select></td>`;
+      }).join("");
+      return `<tr><td>${esc(p.name)}</td>
+        <td><select onchange="setRole(${p.id}, this.value, this)">
+          ${roles.roles.map((r) => `<option ${r === p.role ? "selected" : ""}>${r}</option>`).join("")}</select></td>
+        ${cells}
+        <td>${p.faces}</td>
+        <td><button class="danger" onclick="deletePerson(${p.id}, '${esc(p.name)}')">Remove</button></td></tr>`;
+    }).join("");
+
+  // Device-level exceptions, as chips.
+  const chips = [];
+  for (const p of adminPeople)
+    for (const [target, allowed] of Object.entries(p.rules))
+      if (target.startsWith("device:")) {
+        const dev = devices.find((d) => d.id === target.slice(7));
+        chips.push(`<span class="chip"><span class="${allowed ? "allow" : "block"}">${allowed ? "allow" : "block"}</span>
+          ${esc(p.name)} → ${esc(dev ? dev.name : target.slice(7))}</span>`);
+      }
+  $("ex-list").innerHTML = chips.join("") || "none";
+
+  renderPrefs();
+
+  $("dev-table").innerHTML = `<tr><th>Device</th><th>Kind</th><th>Room</th><th>Connection</th><th></th></tr>` +
+    devices.map((d) => `<tr>
+      <td>${esc(d.name)}<div class="hint" style="margin:0">${esc(d.id)}</div></td>
+      <td>${esc((kinds[d.kind] || {}).label || d.kind)}</td>
+      <td><input value="${esc(d.room)}" style="width:120px" onchange="patchDevice('${esc(d.id)}', {room: this.value})" /></td>
+      <td>${d.transport === "simulated"
+        ? `<span class="badge sim" style="margin:0">simulated</span> <button onclick="patchDevice('${esc(d.id)}', {transport: 'mqtt'})">Switch to real</button>`
+        : `<span class="badge" style="margin:0">real (MQTT)</span> <button onclick="patchDevice('${esc(d.id)}', {transport: 'simulated'})">Simulate</button>`}</td>
+      <td><button class="danger" onclick="removeDevice('${esc(d.id)}', '${esc(d.name)}')">Remove</button></td></tr>`).join("");
+}
+
+function renderPrefs() {
+  const p = adminPeople.find((x) => String(x.id) === $("pref-person").value);
+  const t = $("pref-table");
+  if (!p) { t.innerHTML = '<tr><td class="empty">add a person first</td></tr>'; return; }
+  const rows = devices.filter((d) => CONTROLLABLE.includes(d.kind)).map((d) => {
+    const pref = p.preferences[d.id];
+    const allowed = p.role === "admin" || (p.rules[`device:${d.id}`] ?? p.permissions[d.kind]);
+    const v = pref || {};
+    let input = "";
+    switch (d.kind) {
+      case "light":
+        input = `<input type="range" min="0" max="100" step="5" value="${v.brightness ?? 100}" data-k="brightness"
+                 oninput="this.nextElementSibling.textContent = this.value + '%'" /><span>${v.brightness ?? 100}%</span>`;
+        break;
+      case "switch": input = onOff(v.state, "state", ["ON", "OFF"]); break;
+      case "lock": input = onOff(v.state, "state", ["LOCKED", "UNLOCKED"]); break;
+      case "garage": input = onOff(v.state, "state", ["CLOSED", "OPEN"]); break;
+      case "thermostat":
+        input = onOff(v.mode || "cool", "mode", ["cool", "heat", "auto", "off"]) +
+          ` <input type="number" min="60" max="85" value="${v.target ?? 72}" data-k="target" style="width:64px" />°F`;
+        break;
+    }
+    return `<tr data-dev="${esc(d.id)}">
+      <td>${esc(d.name)}${allowed ? "" : ' <span class="block" title="not allowed — won\'t apply">(not allowed)</span>'}</td>
+      <td class="row">${input}</td>
+      <td>${pref ? '<span class="ok">saved</span>' : '<span class="hint" style="margin:0">—</span>'}</td>
+      <td><button onclick="savePref(this)">Save</button>
+          ${pref ? `<button class="danger" onclick="deletePref('${esc(d.id)}')">Clear</button>` : ""}</td></tr>`;
+  }).join("");
+  t.innerHTML = rows || '<tr><td class="empty">no controllable devices yet</td></tr>';
+}
+
+function onOff(current, key, values) {
+  return `<select data-k="${key}">${values.map((v) => `<option ${v === current ? "selected" : ""}>${v}</option>`).join("")}</select>`;
+}
+
+async function savePref(btn) {
+  const tr = btn.closest("tr");
+  const payload = {};
+  for (const el of tr.querySelectorAll("[data-k]"))
+    payload[el.dataset.k] = el.type === "range" || el.type === "number" ? +el.value : el.value;
+  const pid = $("pref-person").value;
+  try {
+    const r = await api(`/api/admin/people/${pid}/preferences/${encodeURIComponent(tr.dataset.dev)}`,
+                        { method: "PUT", body: { payload } });
+    if (r.warning) alert(r.warning);
+    await reloadAdminPeople();
+  } catch (e) { alert(e.message); }
+}
+
+async function deletePref(deviceId) {
+  await api(`/api/admin/people/${$("pref-person").value}/preferences/${encodeURIComponent(deviceId)}`, { method: "DELETE" });
+  await reloadAdminPeople();
+}
+
+async function reloadAdminPeople() {
+  adminPeople = await api("/api/admin/people");
+  renderAdmin();
+}
+
+async function setKind(pid, kind, value) {
+  const allowed = value === "default" ? null : value === "allow";
+  try { await api(`/api/admin/people/${pid}/access`, { method: "PUT", body: { target: `kind:${kind}`, allowed } }); }
+  catch (e) { alert(e.message); }
+  await reloadAdminPeople();
+}
+
+async function saveException() {
+  const v = $("ex-allowed").value;
+  const allowed = v === "reset" ? null : v === "true";
+  try {
+    await api(`/api/admin/people/${$("ex-person").value}/access`,
+              { method: "PUT", body: { target: `device:${$("ex-device").value}`, allowed } });
+  } catch (e) { alert(e.message); }
+  await reloadAdminPeople();
+}
+
+async function setRole(pid, role, sel) {
+  const body = { role };
+  if (role === "admin") {
+    const pw = prompt("New admins need a password (6+ characters):");
+    if (!pw) { await reloadAdminPeople(); return; }
+    body.password = pw;
+  }
+  try { await api(`/api/admin/people/${pid}`, { method: "PATCH", body }); }
+  catch (e) { alert(e.message); }
+  await reloadAdminPeople();
+  loadPeople();
+}
+
+async function addPerson() {
+  const name = $("new-person").value.trim();
+  if (!name) return;
+  try {
+    await api("/api/people", { method: "POST", body: { name, role: $("new-role").value } });
+    $("new-person").value = "";
+  } catch (e) { alert(e.message); }
+  await reloadAdminPeople();
+  loadPeople();
+}
+
+async function deletePerson(pid, name) {
+  if (!confirm(`Remove ${name}? Their faces, permissions and preferences are deleted too.`)) return;
+  try { await api(`/api/people/${pid}`, { method: "DELETE" }); } catch (e) { alert(e.message); }
+  await reloadAdminPeople();
+  loadPeople();
+}
+
+async function addDevice() {
+  const name = $("dev-name").value.trim();
+  if (!name) return say($("dev-status"), "Give the device a name.", "err");
+  try {
+    const d = await api("/api/devices", { method: "POST", body: {
+      name, kind: $("dev-kind").value, room: $("dev-room").value.trim(), transport: $("dev-transport").value } });
+    say($("dev-status"), `Added ${d.name} (${d.id}).`, "ok");
+    $("dev-name").value = "";
+  } catch (e) { say($("dev-status"), e.message, "err"); }
+  loadDevices();
+}
+
+async function addDemo() {
+  try {
+    const r = await api("/api/devices/demo", { method: "POST" });
+    say($("dev-status"), r.added.length ? `Added ${r.added.length} simulated devices.` : "Demo devices already added.", "ok");
+  } catch (e) { say($("dev-status"), e.message, "err"); }
+  loadDevices();
+}
+
+async function patchDevice(id, body) {
+  try { await api(`/api/devices/${encodeURIComponent(id)}`, { method: "PATCH", body }); }
+  catch (e) { alert(e.message); }
+  loadDevices();
+}
+
+async function removeDevice(id, name) {
+  if (!confirm(`Remove ${name}? Its permissions and preferences are deleted too.`)) return;
+  try { await api(`/api/devices/${encodeURIComponent(id)}`, { method: "DELETE" }); }
+  catch (e) { alert(e.message); }
+  loadDevices();
+  reloadAdminPeople();
+}
+
+async function captureFace() {
+  const el = $("enroll-status");
+  const pid = $("face-person").value;
+  if (!pid) return say(el, "Add the person first (People & access tab).", "err");
+  $("enroll-btn").disabled = true;
+  try {
+    const q = camera ? `?camera=${encodeURIComponent(camera)}` : "";
+    const r = await api(`/api/people/${pid}/faces/capture${q}`, { method: "POST" });
+    say(el, `Captured. ${r.name} now has ${r.faces_enrolled} face(s) enrolled.`, "ok");
+    reloadAdminPeople();
+  } catch (e) { say(el, e.message, "err"); }
+  finally { $("enroll-btn").disabled = false; }
+}
+
+async function clearFaces() {
+  const p = adminPeople.find((x) => String(x.id) === $("face-person").value);
+  if (!p || !confirm(`Forget all of ${p.name}'s enrolled faces?`)) return;
+  await api(`/api/people/${p.id}/faces`, { method: "DELETE" });
+  say($("enroll-status"), `${p.name}'s faces were removed. Capture new ones.`, "ok");
+  reloadAdminPeople();
+}
+
+async function setupAdmin() {
+  const name = $("setup-name").value.trim(), password = $("setup-pass").value;
+  try {
+    const r = await api("/api/admin/setup", { method: "POST", body: { name, password } });
+    token = r.token; store.set("admin-token", token);
+    await refreshAdmin();
+    loadPeople();
+  } catch (e) { say($("setup-status"), e.message, "err"); }
+}
+
+function openLogin() {
+  say($("login-status"), "Look at the camera — your face is checked too.");
+  $("login").showModal();
+  $("login-name").focus();
+}
+
+async function login() {
+  const el = $("login-status");
+  say(el, "Checking password and looking for your face…");
+  $("login-go").disabled = true;
+  try {
+    const r = await api("/api/admin/login", { method: "POST",
+      body: { name: $("login-name").value.trim(), password: $("login-pass").value } });
+    token = r.token; store.set("admin-token", token);
+    $("login-pass").value = "";
+    $("login").close();
+    if (r.warnings.length) alert(r.warnings.join("\n"));
+    await refreshAdmin();
+  } catch (e) { say(el, e.message, "bad"); }
+  finally { $("login-go").disabled = false; }
+}
+
+async function logout() {
+  try { await api("/api/admin/logout", { method: "POST" }); } catch {}
+  token = null; store.set("admin-token", null);
+  await refreshAdmin();
+}
+
+function showTab(btn) {
+  document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("active", b === btn));
+  document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.id === btn.dataset.tab));
+}
+
+$("login-pass").addEventListener("keydown", (e) => { if (e.key === "Enter") login(); });
+
+// ------------------------------------------------------------------- boot
+
+(async () => {
+  await refreshAdmin();
+  loadHealth(); loadPeople(); loadDevices(); loadNotifications(); loadCameras(); connect();
+  setInterval(loadHealth, 10000);
+  setInterval(loadCameras, 2000);
+})();
 </script>
 </body>
 </html>

@@ -18,7 +18,7 @@ import numpy as np  # noqa: E402
 
 from app.db import init_db, session_scope  # noqa: E402
 from app.db.models import FaceEmbedding, Person  # noqa: E402
-from app.vision.recognizer import FaceCropper, build_encoder  # noqa: E402
+from app.vision.recognizer import FaceRecognizer  # noqa: E402
 
 SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 
@@ -39,8 +39,7 @@ def main() -> int:
         return 1
 
     init_db()
-    encoder = build_encoder()
-    cropper = FaceCropper()
+    recognizer = FaceRecognizer()
     stored = 0
 
     with session_scope() as session:
@@ -56,27 +55,23 @@ def main() -> int:
             if image is None:
                 print(f"  skip {path.name}: unreadable")
                 continue
-            # Embed the face crop, not the whole photo -- the live pipeline matches crops.
-            face = cropper.crop(image)
-            if face is None:
-                print(f"  skip {path.name}: no face found")
-                continue
-            vector = encoder.embed(face)
+            # Same find -> align -> embed path the live pipeline uses.
+            vector = recognizer.embed_image(image)
             if vector is None:
-                print(f"  skip {path.name}: no usable face")
+                print(f"  skip {path.name}: no clear face (too small, blurry, or turned away)")
                 continue
             session.add(
                 FaceEmbedding(
                     person_id=person.id,
                     vector=vector.astype(np.float32).tobytes(),
                     dim=int(vector.shape[0]),
-                    model_name=encoder.name,
+                    model_name=recognizer.model_name,
                 )
             )
             stored += 1
             print(f"  + {path.name}")
 
-    print(f"\nstored {stored} embedding(s) for '{args.name}' using {encoder.name}")
+    print(f"\nstored {stored} embedding(s) for '{args.name}' using {recognizer.model_name}")
     print("restart the backend (or POST to /api/people) to refresh the live gallery")
     return 0
 

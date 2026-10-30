@@ -31,6 +31,9 @@ class EventType(str, Enum):
     SENSOR_READING = "sensor_reading"
     DEVICE_STATE = "device_state"
     DEVICE_COMMAND = "device_command"
+    ACCESS_GRANTED = "access_granted"    # camera-verified person allowed to use a device
+    ACCESS_DENIED = "access_denied"      # ...or refused, by permission or no face
+    ADMIN_LOGIN = "admin_login"
     SYSTEM = "system"
 
 

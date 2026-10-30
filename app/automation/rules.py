@@ -12,12 +12,13 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
 
+from app import access
 from app.db import session_scope
-from app.db.models import Device, EventLog, Person
+from app.db.models import Device, EventLog, Person, Preference
 from app.events import Event, EventType, bus
-from app.iot import mqtt_bridge
+from app.iot import devices, mqtt_bridge
 from app.notifications import notifier
 
 log = logging.getLogger(__name__)
@@ -28,7 +29,7 @@ class Rule:
     name: str
     when: EventType
     condition: Callable[[Event], bool]
-    action: Callable[[Event], None]
+    action: Callable[[Event], Awaitable[None]]
     description: str = ""
 
 
@@ -52,19 +53,22 @@ async def log_event(event: Event) -> None:
 
 
 async def sync_device_state(event: Event) -> None:
-    """Keep the devices table current from MQTT state messages."""
+    """Keep the devices table current from MQTT and simulator state reports."""
     if event.device_id is None:
         return
+    state = {k: v for k, v in event.payload.items() if k != "kind"}
     with session_scope() as session:
         device = session.get(Device, event.device_id)
         if device is None:
+            # An unknown device announced itself over MQTT: register it as real hardware.
             device = Device(
                 id=event.device_id,
                 name=event.device_id,
                 kind=event.payload.get("kind", "sensor"),
+                transport="mqtt",
             )
             session.add(device)
-        device.state = event.payload
+        device.state = state
         device.online = True
         device.last_update = event.timestamp
 
@@ -145,43 +149,119 @@ async def expire_presence() -> None:
 # ------------------------------------------------------------------ the rules
 
 
-def _command(device_id: str, payload: dict[str, Any]) -> None:
-    mqtt_bridge.command(device_id, payload)
+def _camera_room(event: Event) -> str:
+    """Room of the camera that produced a vision event ("vision:<camera>")."""
+    from app.vision import cameras
+
+    camera = event.payload.get("camera") or event.source.removeprefix("vision:")
+    return cameras.room_of(camera)
+
+
+async def _command(device_id: str, payload: dict[str, Any], source: str, actor: str | None = None) -> bool:
+    try:
+        await devices.send(device_id, payload, source=source, actor=actor)
+        return True
+    except (LookupError, devices.CommandError) as exc:
+        log.warning("automation skipped %s: %s", device_id, exc)
+        return False
+
+
+def _device_ids(kinds: tuple[str, ...], room: str | None = None) -> list[str]:
+    with session_scope() as session:
+        query = session.query(Device).filter(Device.kind.in_(kinds))
+        if room:
+            query = query.filter(Device.room == room)
+        return [d.id for d in query]
+
+
+async def welcome_home(event: Event) -> None:
+    """Apply the arriving person's preferences -- only what they're allowed to use.
+
+    No preferences saved: turn on the lights in the room where they were seen.
+    """
+    with session_scope() as session:
+        person = session.get(Person, event.person_id)
+        if person is None:
+            return
+        name = person.name
+        prefs = session.query(Preference).filter(Preference.person_id == person.id).all()
+        plan: list[tuple[str, dict]] = []
+        skipped: list[str] = []
+        if prefs:
+            targets = [(p.device_id, p.payload) for p in prefs]
+        else:
+            room = _camera_room(event)
+            targets = [(d, {"state": "ON"}) for d in _device_ids(("light",), room)]
+        for device_id, payload in targets:
+            device = session.get(Device, device_id)
+            if device is None:
+                continue
+            allowed, _ = access.can_control(session, person, device)
+            if allowed:
+                plan.append((device_id, payload))
+            else:
+                skipped.append(device.name)
+
+    done = 0
+    for device_id, payload in plan:
+        if await _command(device_id, payload, "automation:arrival", name):
+            done += 1
+    message = f"Welcome home, {name}."
+    if done:
+        message += f" Set {done} device(s) to your preferences."
+    if skipped:
+        message += f" Not allowed: {', '.join(skipped)}."
+    notifier.send(message)
+
+
+async def away_shutdown(event: Event) -> None:
+    """Once the last person has left, switch off lights and plugs and the AC."""
+    name = event.payload.get("name", "Someone")
+    with session_scope() as session:
+        anyone_home = session.query(Person).filter(Person.is_home.is_(True)).count() > 0
+    if anyone_home:
+        notifier.send(f"{name} left the house.")
+        return
+
+    for device_id in _device_ids(("light", "switch")):
+        await _command(device_id, {"state": "OFF"}, "automation:away")
+    for device_id in _device_ids(("thermostat",)):
+        await _command(device_id, {"mode": "off"}, "automation:away")
+    notifier.send(f"{name} left -- nobody is home. Lights and AC are off.")
+
+
+async def unknown_at_door(event: Event) -> None:
+    """Light up the room an unrecognized person is in, and raise an alert."""
+    room = _camera_room(event)
+    for device_id in _device_ids(("light",), room):
+        await _command(device_id, {"state": "ON", "brightness": 100}, "automation:security")
+    notifier.send(
+        f"Unrecognized person at {event.payload.get('camera', 'a camera')}.",
+        priority="high",
+    )
 
 
 RULES: list[Rule] = [
     Rule(
         name="welcome_home",
         when=EventType.PRESENCE_ARRIVED,
-        condition=lambda e: True,
-        action=lambda e: (
-            _command("light.entry", {"state": "ON", "brightness": 180}),
-            notifier.send(f"Welcome home, {e.payload.get('name', 'someone')}."),
-        ),
-        description="Turn on the entry light when a household member arrives (MVP #9).",
+        condition=lambda e: e.person_id is not None,
+        action=welcome_home,
+        description="Apply the arriving person's saved preferences (MVP #9).",
     ),
     Rule(
         name="away_shutdown",
         when=EventType.PRESENCE_LEFT,
         condition=lambda e: True,
-        action=lambda e: (
-            _command("light.entry", {"state": "OFF"}),
-            notifier.send(f"{e.payload.get('name', 'Someone')} left the house."),
-        ),
-        description="Power down the entry light once the last person leaves.",
+        action=away_shutdown,
+        description="Power down lights and AC once the last person leaves.",
     ),
     Rule(
         name="unknown_at_door",
         when=EventType.UNKNOWN_PERSON,
-        condition=lambda e: (e.confidence or 0) >= 0.0,
-        action=lambda e: (
-            _command("light.porch", {"state": "ON"}),
-            notifier.send(
-                f"Unrecognized person at {e.payload.get('camera', 'a camera')}.",
-                priority="high",
-            ),
-        ),
-        description="Light the porch and alert on an unrecognized face (MVP #7).",
+        condition=lambda e: True,
+        action=unknown_at_door,
+        description="Light the room and alert on an unrecognized face (MVP #7).",
     ),
 ]
 
@@ -193,7 +273,7 @@ async def evaluate_rules(event: Event) -> None:
         try:
             if rule.condition(event):
                 log.info("rule fired: %s", rule.name)
-                rule.action(event)
+                await rule.action(event)
         except Exception:
             log.exception("rule %s failed", rule.name)
 
