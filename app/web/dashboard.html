@@ -136,7 +136,8 @@
         <div class="body"><table id="people"></table></div>
       </section>
       <section>
-        <h2>Notifications</h2>
+        <h2>Notifications <span class="right hint" style="margin:0" id="phone-state"></span>
+          <button id="phone-test" style="display:none;margin-left:8px" onclick="testPhone()">Test phone</button></h2>
         <div class="body feed scroll" id="notes"><div class="empty">none yet</div></div>
       </section>
     </div>
@@ -464,8 +465,24 @@ async function loadNotifications() {
   box.innerHTML = rows.length ? "" : '<div class="empty">none yet</div>';
   for (const n of rows) {
     box.insertAdjacentHTML("beforeend",
-      `<div><span class="t">${time(n.timestamp)}</span><span class="${n.priority === "high" ? "err" : ""}">${esc(n.message)}</span></div>`);
+      `<div><span class="t">${time(n.timestamp)}</span><span class="${n.priority === "high" ? "err" : ""}">${esc(n.message)}</span>${n.pushed ? ' <span class="t" title="sent to phone">📱</span>' : ""}</div>`);
   }
+}
+
+let phone = { phone: false };
+
+async function loadPhone() {
+  try { phone = await api("/api/notifications/status"); } catch { return; }
+  $("phone-state").textContent = phone.phone ? "📱 phone alerts on" : "phone alerts off (set NTFY_TOPIC)";
+  $("phone-test").style.display = phone.phone && (isAdmin() || status.setup_required) ? "" : "none";
+}
+
+async function testPhone() {
+  const btn = $("phone-test");
+  btn.disabled = true;
+  try { await api("/api/notifications/test", { method: "POST" }); btn.textContent = "Sent ✓"; }
+  catch (e) { btn.textContent = "Failed"; alert(e.message); }
+  setTimeout(() => { btn.textContent = "Test phone"; btn.disabled = false; }, 3000);
 }
 
 function addEvent(ev) {
@@ -527,6 +544,7 @@ async function refreshAdmin() {
   $("admin-tools").style.display = status.admin || status.setup_required ? "" : "none";
   if (status.admin || status.setup_required) await loadAdminData();
   renderDevices();
+  loadPhone();
 }
 
 async function loadAdminData() {

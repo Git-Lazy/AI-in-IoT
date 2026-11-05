@@ -46,6 +46,14 @@ class Settings(BaseSettings):
     admin_face_verify: bool = True
     admin_session_hours: int = 8
 
+    # Phone notifications via ntfy. Empty topic = dashboard only. Anyone who
+    # knows the topic can read it, so make it long and unguessable.
+    ntfy_topic: str = ""
+    ntfy_server: str = "https://ntfy.sh"
+    ntfy_token: str = ""                  # only for a password-protected server
+    ntfy_min_priority: str = "normal"     # low | normal | high -- lower stays on the dashboard
+    ntfy_cooldown_seconds: int = 60       # don't re-push the same alert within this
+
     # Models
     detector_backend: str = "stub"
     recognizer_backend: str = "stub"

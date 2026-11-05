@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.api.schemas import EventOut
+from app.auth import require_admin
+from app.config import settings
 from app.db import get_db
 from app.db.models import EventLog
 from app.notifications import notifier
@@ -28,3 +30,23 @@ def list_events(
 @router.get("/notifications")
 def list_notifications(limit: int = Query(20, ge=1, le=100)):
     return notifier.recent(limit)
+
+
+@router.get("/notifications/status")
+def notification_status():
+    return {
+        "phone": notifier.phone_enabled,
+        "server": settings.ntfy_server,
+        "min_priority": settings.ntfy_min_priority,
+    }
+
+
+@router.post("/notifications/test", dependencies=[Depends(require_admin)])
+async def test_notification():
+    """Push one notification straight to the phone, bypassing the cooldown."""
+    if not notifier.phone_enabled:
+        raise HTTPException(400, "Phone notifications are off: set NTFY_TOPIC in .env and restart.")
+    message = "Test notification -- phone alerts are working."
+    if not await notifier.push(message, "normal", title="Home AI test"):
+        raise HTTPException(502, "Push failed -- check the backend log and your NTFY settings.")
+    return {"sent": True}

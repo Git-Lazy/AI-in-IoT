@@ -147,6 +147,26 @@ When a real device arrives, switch it from Simulated to Real in Admin → Device
 It keeps its id, so its permissions and preferences carry over, and commands
 start going to `homeai/device/<id>/set` over MQTT instead.
 
+## Phone notifications
+
+Alerts go to the dashboard and, if `NTFY_TOPIC` is set, to your phone through
+[ntfy](https://ntfy.sh). It's free and needs no account.
+
+1. Install the **ntfy** app (Android / iOS) and tap **+** to subscribe to a topic.
+   Pick a long random name such as `homeai-sam-7f3k9q2x`. Anyone who knows the
+   topic can read it.
+2. Put the same name in `.env` as `NTFY_TOPIC=homeai-sam-7f3k9q2x` and restart the backend.
+3. Log in as admin on the dashboard and press **Test phone** in the Notifications panel.
+
+| Alert | Priority | On the phone |
+|---|---|---|
+| Unrecognized person | high | Alarm-level push, with a camera snapshot attached |
+| Welcome home / someone left | normal | Normal push |
+
+`NTFY_MIN_PRIORITY=high` limits pushes to security alerts only. A repeat of the same alert
+within `NTFY_COOLDOWN_SECONDS` (60 by default) is kept on the dashboard but not
+pushed again. Notifications sent to the phone are marked 📱 on the dashboard.
+
 ## Face recognition tuning
 
 | Stage | What it does | Setting |
@@ -210,7 +230,7 @@ Assistant, and mirrors how Frigate exposes its detections.
 | 4 | Facial recognition for registered members | Done (MTCNN + FaceNet, voting) |
 | 5 | Identify entering/leaving | Done (`track_presence` / `expire_presence`) |
 | 6 | Store event logs | Done (`EventLog`) |
-| 7 | Notifications | In-app sink done; external delivery pending |
+| 7 | Notifications | Dashboard + phone push (ntfy), with camera snapshot on unknown faces |
 | 8 | Dashboard | Done |
 | 9 | AI-driven automation actions | Per-person arrival preferences, role-based access |
 | 10 | End-to-end communication | Demonstrable with `fake_device.py` |

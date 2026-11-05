@@ -157,6 +157,20 @@ def _camera_room(event: Event) -> str:
     return cameras.room_of(camera)
 
 
+def _camera_snapshot(event: Event) -> bytes | None:
+    """JPEG of what the event's camera sees right now, boxes drawn in."""
+    import cv2
+
+    from app.vision import cameras
+
+    pipeline = cameras.get(event.payload.get("camera"))
+    frame = pipeline.latest_preview() if pipeline else None
+    if frame is None:
+        return None
+    ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+    return buf.tobytes() if ok else None
+
+
 async def _command(device_id: str, payload: dict[str, Any], source: str, actor: str | None = None) -> bool:
     try:
         await devices.send(device_id, payload, source=source, actor=actor)
@@ -235,9 +249,13 @@ async def unknown_at_door(event: Event) -> None:
     room = _camera_room(event)
     for device_id in _device_ids(("light",), room):
         await _command(device_id, {"state": "ON", "brightness": 100}, "automation:security")
+    camera = event.payload.get("camera", "a camera")
     notifier.send(
-        f"Unrecognized person at {event.payload.get('camera', 'a camera')}.",
+        f"Unrecognized person at {camera}.",
         priority="high",
+        title="Unknown person",
+        image=_camera_snapshot(event),
+        key=f"unknown:{camera}",
     )
 
 
