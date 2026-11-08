@@ -147,15 +147,36 @@ When a real device arrives, switch it from Simulated to Real in Admin → Device
 It keeps its id, so its permissions and preferences carry over, and commands
 start going to `homeai/device/<id>/set` over MQTT instead.
 
+### Emulating real hardware over MQTT
+
+`scripts/fake_device.py` is a separate program that acts like real hardware.
+It talks to the backend **only through Mosquitto**, which tests the full chain
+before you buy anything:
+
+```powershell
+docker compose up -d mosquitto        # Docker Desktop must be running
+# Dashboard: Admin -> Devices -> switch e.g. light.living_room to Real
+python scripts/fake_device.py         # every device set to Real
+python scripts/fake_device.py light.living_room thermostat.main   # or pick devices
+python scripts/fake_device.py --no-gui                            # console only
+```
+
+A window shows each device. The bulb glows with its brightness, and the AC
+cools the room toward its target. Buttons stand in for the physical world:
+a wall switch, walking past a motion sensor, opening a door. Those changes
+reach the dashboard over MQTT, just as a real sensor's would. While a device
+is still set to Simulated, the backend ignores MQTT reports for it, so the
+two never compete over its state.
+
 ## Phone notifications
 
 Alerts go to the dashboard and, if `NTFY_TOPIC` is set, to your phone through
 [ntfy](https://ntfy.sh). It's free and needs no account.
 
 1. Install the **ntfy** app (Android / iOS) and tap **+** to subscribe to a topic.
-   Pick a long random name such as `homeai-sam-7f3k9q2x`. Anyone who knows the
+   Pick a long random name such as `homeai-yourname-<random letters>`. Anyone who knows the
    topic can read it.
-2. Put the same name in `.env` as `NTFY_TOPIC=homeai-sam-7f3k9q2x` and restart the backend.
+2. Put the same name in `.env` as `NTFY_TOPIC=homeai-yourname-<random letters>` and restart the backend.
 3. Log in as admin on the dashboard and press **Test phone** in the Notifications panel.
 
 | Alert | Priority | On the phone |

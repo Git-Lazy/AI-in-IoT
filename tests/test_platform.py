@@ -319,3 +319,18 @@ def test_old_database_gets_new_columns(tmp_path):
     con = sqlite3.connect(path)
     assert con.execute("SELECT role, password_hash FROM people").fetchone() == ("adult", None)
     con.close()
+
+
+def test_mqtt_state_only_counts_once_device_is_real(client):
+    ids = _setup_house(client)
+    from app.events import Event, bus
+
+    def mqtt_report():
+        asyncio.run(bus.publish(Event(type=EventType.DEVICE_STATE, source="mqtt:homeai/device/switch.tv/state",
+                                      device_id="switch.tv", payload={"kind": "switch", "state": "ON"})))
+        return {d["id"]: d for d in client.get("/api/devices").json()}["switch.tv"]
+
+    assert mqtt_report()["state"]["state"] == "OFF"          # still simulated: ignored
+    client.patch("/api/devices/switch.tv", json={"transport": "mqtt"}, headers=ids["admin"])
+    tv = mqtt_report()
+    assert tv["state"] == {"state": "ON"} and tv["online"] is True

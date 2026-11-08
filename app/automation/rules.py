@@ -68,6 +68,11 @@ async def sync_device_state(event: Event) -> None:
                 transport="mqtt",
             )
             session.add(device)
+        elif device.transport == "simulated" and event.source.startswith("mqtt:"):
+            # Real hardware (or a retained message) for a device we're still
+            # simulating -- the simulator owns its state until the admin switches it.
+            log.debug("ignoring MQTT state for simulated device %s", device.id)
+            return
         device.state = state
         device.online = True
         device.last_update = event.timestamp
