@@ -4,6 +4,9 @@ Runs on its own thread (OpenCV and torch both block) and pushes results onto the
 async event bus. This is the module that turns pixels into the structured events
 the rest of the platform reasons about.
 
+On a camera with a door line (see doorway.py), a track whose feet cross the
+line inward becomes one PERSON_ENTERED event, named once the face is known.
+
 Identity is decided per *track* (one person, followed across frames by YOLO), by
 vote: a face has to match the same person in several recent frames before the
 track is trusted as that person. One lucky -- or unlucky -- frame can't unlock a
@@ -26,6 +29,7 @@ from app.db.models import FaceEmbedding, Person
 from app.events import Event, EventType, bus
 from app.vision.camera import Camera
 from app.vision.detector import Detection, build_detector
+from app.vision.doorway import Crossing, DoorLine, door_line_for, feet
 from app.vision.recognizer import FaceGallery, FaceRecognizer, Match
 
 log = logging.getLogger(__name__)
@@ -49,6 +53,8 @@ class TrackState:
     identity: Match | None = None     # set once enough votes agree
     last_seen: float = 0.0
     last_embed: float = 0.0
+    door: Crossing = field(default_factory=Crossing)
+    entered_at: float | None = None   # walked in; waiting to announce until we know who
 
 
 class VisionPipeline:
@@ -65,6 +71,7 @@ class VisionPipeline:
         self._camera = Camera(source, settings.camera_fps, camera_name)
         self._detector = build_detector()
         self.recognizer = recognizer or FaceRecognizer()
+        self.door: DoorLine | None = door_line_for(camera_name)
         self._gallery = FaceGallery(settings.face_match_threshold, settings.face_match_margin)
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
@@ -187,6 +194,8 @@ class VisionPipeline:
                     )
                 )
 
+            if self.door is not None and key != UNTRACKED:
+                self._check_door(frame, det, track, now)
             self._heartbeat(det, source)
 
             # A trusted track only needs an occasional re-check.
@@ -200,7 +209,52 @@ class VisionPipeline:
             track.last_embed = now
             self._vote(track, match, det, source)
 
+        self._announce_entries(now)
         self._prune(now)
+
+    # ------------------------------------------------------------------ door
+
+    def _check_door(self, frame: np.ndarray, det: Detection, track: TrackState, now: float) -> None:
+        h, w = frame.shape[:2]
+        x, y = feet(det.box, w, h)
+        if track.door.update(self.door.offset(x, y)) == "in":
+            track.entered_at = now
+            log.info("track #%s walked in at %s", det.track_id, self.camera_name)
+
+    def _announce_entries(self, now: float, gone: dict[int, TrackState] | None = None) -> None:
+        """Publish PERSON_ENTERED for tracks that walked in.
+
+        Right away if the face is already known; otherwise give recognition
+        door_identify_seconds to catch up (people often cross before their face
+        is close enough), then announce whoever we have -- possibly nobody.
+        Tracks in `gone` are being forgotten, so they're announced now.
+        """
+        with self._tracks_lock:
+            pending = [(k, t) for k, t in self._tracks.items() if t.entered_at is not None]
+        pending += [(k, t) for k, t in (gone or {}).items() if t.entered_at is not None]
+
+        for track_id, track in pending:
+            match = track.identity
+            known = match is not None and match.person_id is not None
+            waited = now - track.entered_at
+            if not known and waited < settings.door_identify_seconds and track_id not in (gone or {}):
+                continue
+            track.entered_at = None
+            log.info("track #%s entered as %s", track_id, match.name if match else "nobody recognized")
+            bus.publish_threadsafe(
+                Event(
+                    type=EventType.PERSON_ENTERED,
+                    source=f"vision:{self.camera_name}",
+                    person_id=match.person_id if known else None,
+                    confidence=round(1.0 - match.distance, 3) if match else None,
+                    payload={
+                        "name": match.name if known else None,
+                        "face": "known" if known else "unknown" if match else "none",
+                        "track_id": track_id,
+                        "camera": self.camera_name,
+                    },
+                )
+            )
 
     def _vote(self, track: TrackState, match: Match, det: Detection, source: str) -> None:
         """Add one frame's verdict; announce when the track's identity settles."""
@@ -243,8 +297,9 @@ class VisionPipeline:
     def _prune(self, now: float) -> None:
         with self._tracks_lock:
             stale = [k for k, t in self._tracks.items() if now - t.last_seen > TRACK_TTL_SECONDS]
-            for k in stale:
-                del self._tracks[k]
+            gone = {k: self._tracks.pop(k) for k in stale}
+        if any(t.entered_at is not None for t in gone.values()):
+            self._announce_entries(now, gone)
 
     def _heartbeat(self, det: Detection, source: str) -> None:
         """Keep presence alive while a recognized track stays in frame.
@@ -291,6 +346,19 @@ class VisionPipeline:
 
         annotated = frame.copy()
         need = settings.face_votes_required
+        h, w = frame.shape[:2]
+        if self.door is not None:
+            a, b = self.door.pixels(w, h)
+            cv2.line(annotated, a, b, (0, 215, 255), 2)
+            # Label the inside, a little off the middle of the line.
+            mx, my = (a[0] + b[0]) / 2, (a[1] + b[1]) / 2
+            nx, ny = -(b[1] - a[1]), b[0] - a[0]
+            norm = max((nx * nx + ny * ny) ** 0.5, 1.0)
+            nx, ny = nx / norm * 18, ny / norm * 18
+            if self.door.offset((mx + nx) / w, (my + ny) / h) < 0:
+                nx, ny = -nx, -ny
+            cv2.putText(annotated, "door  (inside)", (int(mx + nx) - 50, int(my + ny) + 5),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 215, 255), 1)
         for det in detections:
             x1, y1, x2, y2 = det.box
             key = det.track_id if det.track_id is not None else UNTRACKED
@@ -309,6 +377,9 @@ class VisionPipeline:
             if det.track_id is not None:
                 label += f" #{det.track_id}"
             cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
+            if self.door is not None and track is not None:
+                fx, fy = feet(det.box, w, h)
+                cv2.circle(annotated, (int(fx * w), int(fy * h) - 4), 5, color, -1)
             cv2.putText(
                 annotated, label, (x1, max(y1 - 8, 12)),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2,

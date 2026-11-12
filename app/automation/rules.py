@@ -15,6 +15,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable
 
 from app import access
+from app.config import settings
 from app.db import session_scope
 from app.db.models import Device, EventLog, Person, Preference
 from app.events import Event, EventType, bus
@@ -95,9 +96,14 @@ async def track_presence(event: Event) -> None:
 
     A single recognition is noisy; a transition is meaningful. Debouncing here is
     the main defense against the false-positive problem named in the proposal.
+
+    A camera with a door line doesn't turn sightings into arrivals: being in view
+    of the entry camera isn't the same as coming home. There, only walking in
+    across the line counts (arrive_through_door).
     """
     if event.person_id is None:
         return
+    door_camera = event.payload.get("camera") in _door_cameras()
 
     with session_scope() as session:
         person = session.get(Person, event.person_id)
@@ -107,6 +113,8 @@ async def track_presence(event: Event) -> None:
         now = event.timestamp
         was_home = person.is_home
         person.last_seen = now
+        if not was_home and door_camera:
+            return
         person.is_home = True
         name = person.name
 
@@ -119,6 +127,39 @@ async def track_presence(event: Event) -> None:
                 payload={"name": name},
             )
         )
+
+
+async def arrive_through_door(event: Event) -> None:
+    """Someone walked in across a door line: that's an arrival, with their name."""
+    if event.person_id is None:
+        return                      # nobody recognized -- see the unknown_entered rule
+    with session_scope() as session:
+        person = session.get(Person, event.person_id)
+        if person is None:
+            return
+        was_home = person.is_home
+        person.is_home = True
+        person.last_seen = event.timestamp
+        name = person.name
+
+    if was_home:
+        log.info("%s walked in but was already home", name)
+        return
+    await bus.publish(
+        Event(
+            type=EventType.PRESENCE_ARRIVED,
+            source=event.source,
+            person_id=event.person_id,
+            confidence=event.confidence,
+            payload={"name": name, "via": "door", "camera": event.payload.get("camera")},
+        )
+    )
+
+
+def _door_cameras() -> set[str]:
+    from app.vision.doorway import parse_door_lines
+
+    return set(parse_door_lines(settings.door_lines))
 
 
 async def expire_presence() -> None:
@@ -264,6 +305,19 @@ async def unknown_at_door(event: Event) -> None:
     )
 
 
+async def unknown_entered(event: Event) -> None:
+    """Someone came in through the door and wasn't recognized."""
+    camera = event.payload.get("camera", "a camera")
+    seen = "an unrecognized face" if event.payload.get("face") == "unknown" else "no face seen"
+    notifier.send(
+        f"Someone came in at {camera} ({seen}).",
+        priority="high",
+        title="Unknown person entered",
+        image=_camera_snapshot(event),
+        key=f"unknown:{camera}",         # shares the cooldown with unknown_at_door
+    )
+
+
 RULES: list[Rule] = [
     Rule(
         name="welcome_home",
@@ -285,6 +339,13 @@ RULES: list[Rule] = [
         condition=lambda e: True,
         action=unknown_at_door,
         description="Light the room and alert on an unrecognized face (MVP #7).",
+    ),
+    Rule(
+        name="unknown_entered",
+        when=EventType.PERSON_ENTERED,
+        condition=lambda e: e.person_id is None,
+        action=unknown_entered,
+        description="Alert when someone walks in through a door without being recognized.",
     ),
 ]
 
@@ -310,5 +371,6 @@ def register_handlers() -> None:
     bus.subscribe(sync_device_state, {EventType.DEVICE_STATE, EventType.SENSOR_READING})
     bus.subscribe(mirror_to_mqtt)
     bus.subscribe(track_presence, {EventType.PERSON_RECOGNIZED, EventType.PERSON_SEEN})
+    bus.subscribe(arrive_through_door, {EventType.PERSON_ENTERED})
     bus.subscribe(evaluate_rules)
     log.info("automation handlers registered (%d rules)", len(RULES))

@@ -493,6 +493,8 @@ function addEvent(ev) {
   let detail = p.name || ev.device_id || ev.source;
   if (ev.type.startsWith("access")) detail = `${p.name} → ${p.device} (${p.reason})`;
   if (ev.type === "device_command") detail = `${ev.device_id}${p.by ? " by " + p.by : ""}`;
+  if (ev.type === "person_entered") detail = `${p.name || "someone (not recognized)"} walked in at ${p.camera}`;
+  if (ev.type === "presence_arrived" && p.via === "door") detail = `${p.name} (through the ${p.camera} door)`;
   box.insertAdjacentHTML("afterbegin",
     `<div><span class="t">${time(ev.timestamp)}</span><span class="${cls}">${esc(ev.type)}</span> — ${esc(detail)}</div>`);
   while (box.children.length > 100) box.lastChild.remove();

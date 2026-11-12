@@ -26,6 +26,7 @@ class EventType(str, Enum):
     PERSON_RECOGNIZED = "person_recognized"
     PERSON_SEEN = "person_seen"          # periodic "still in frame" for a recognized track
     UNKNOWN_PERSON = "unknown_person"
+    PERSON_ENTERED = "person_entered"    # walked in across a camera's door line
     PRESENCE_ARRIVED = "presence_arrived"
     PRESENCE_LEFT = "presence_left"
     SENSOR_READING = "sensor_reading"

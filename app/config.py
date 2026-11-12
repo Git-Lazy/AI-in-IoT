@@ -40,6 +40,13 @@ class Settings(BaseSettings):
     # "front_door" in the Entry, on CAMERA_SOURCE.
     cameras: str = ""
 
+    # Door lines: walking across one is what counts as arriving (see
+    # app/vision/doorway.py). "camera:x1,y1,x2,y2[:flip]", ";" between cameras.
+    door_lines: str = ""
+    door_band: float = 0.03               # dead zone either side of the line, frame fraction
+    door_confirm_frames: int = 3          # frames on the new side before a crossing counts
+    door_identify_seconds: float = 4.0    # wait this long for a face after someone walks in
+
     # Admin
     # Admin login needs password + the admin's face on a camera. Turn off only
     # while you have no working camera.

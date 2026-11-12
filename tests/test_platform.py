@@ -49,6 +49,11 @@ def client(monkeypatch):
     monkeypatch.setattr("app.api.routes_admin.FACE_WAIT_SECONDS", 0.3)
     # Windows takes ~2s to refuse a closed port; tests don't need a broker at all.
     monkeypatch.setattr("app.iot.mqtt_client.mqtt_bridge.start", lambda: None)
+    # Each app startup subscribes the handlers again; without a fresh list every
+    # event would be handled once per earlier test.
+    from app.events import bus
+
+    monkeypatch.setattr(bus, "_handlers", [])
     from app.main import app
 
     with TestClient(app) as c:
@@ -334,3 +339,50 @@ def test_mqtt_state_only_counts_once_device_is_real(client):
     client.patch("/api/devices/switch.tv", json={"transport": "mqtt"}, headers=ids["admin"])
     tv = mqtt_report()
     assert tv["state"] == {"state": "ON"} and tv["online"] is True
+
+
+# ------------------------------------------------------------ door arrivals
+
+
+def test_walking_in_is_the_arrival_not_standing_in_view(client, monkeypatch):
+    from app.config import settings
+    from app.events import Event, bus
+
+    monkeypatch.setattr(settings, "door_lines", "front_door:0.1,0.6,0.9,0.6")
+    ids = _setup_house(client)
+    arrivals: list = []
+
+    async def record(e):
+        arrivals.append(e)
+
+    bus.subscribe(record, {EventType.PRESENCE_ARRIVED})
+    home = lambda: {p["name"]: p["is_home"] for p in client.get("/api/people").json()}
+
+    # Recognized by the door camera while standing there: not an arrival.
+    asyncio.run(bus.publish(Event(type=EventType.PERSON_RECOGNIZED, source="vision:front_door",
+                                  person_id=ids["kid"], payload={"name": "Kid", "camera": "front_door"})))
+    assert home()["Kid"] is False and arrivals == []
+
+    # Walks in across the line: one arrival, with the name.
+    entered = Event(type=EventType.PERSON_ENTERED, source="vision:front_door", person_id=ids["kid"],
+                    payload={"name": "Kid", "face": "known", "camera": "front_door"})
+    asyncio.run(bus.publish(entered))
+    asyncio.run(bus.publish(entered))                    # a second crossing while home
+    assert home()["Kid"] is True
+    assert [(e.payload["name"], e.payload["via"]) for e in arrivals] == [("Kid", "door")]
+
+    # Other cameras still count a sighting as being home.
+    asyncio.run(bus.publish(Event(type=EventType.PERSON_RECOGNIZED, source="vision:living_room",
+                                  person_id=ids["sam"], payload={"name": "Sam", "camera": "living_room"})))
+    assert home()["Sam"] is True
+
+
+def test_unrecognized_entry_raises_an_alert(client, monkeypatch):
+    from app.events import Event, bus
+    from app.notifications import notifier
+
+    sent: list = []
+    monkeypatch.setattr(notifier, "send", lambda msg, priority="normal", **kw: sent.append((msg, priority)))
+    asyncio.run(bus.publish(Event(type=EventType.PERSON_ENTERED, source="vision:front_door",
+                                  payload={"name": None, "face": "none", "camera": "front_door"})))
+    assert sent == [("Someone came in at front_door (no face seen).", "high")]
