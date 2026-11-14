@@ -1,4 +1,4 @@
-"""Database schema: people, faces, access rules, preferences, devices, event log."""
+"""Database schema: people, faces, access rules, preferences, devices, cameras, event log."""
 
 from __future__ import annotations
 
@@ -112,6 +112,17 @@ class Preference(Base):
     person_id: Mapped[int] = mapped_column(ForeignKey("people.id", ondelete="CASCADE"))
     device_id: Mapped[str] = mapped_column(String(64))
     payload: Mapped[dict] = mapped_column(JSON, default=dict)   # same shape as a command
+
+
+class CameraSetting(Base):
+    """Per-camera settings made on the dashboard. They win over .env."""
+
+    __tablename__ = "camera_settings"
+
+    camera: Mapped[str] = mapped_column(String(64), primary_key=True)
+    # {"x1", "y1", "x2", "y2", "flip"} as frame fractions; None = no door line
+    # (a row with None switches off a line that .env would otherwise set).
+    door_line: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
 class EventLog(Base):

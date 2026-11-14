@@ -87,8 +87,17 @@ async def mirror_to_mqtt(event: Event) -> None:
 
 # ------------------------------------------------------------ presence tracking
 
-# How long without a sighting before we call someone "left".
-PRESENCE_TIMEOUT = timedelta(minutes=5)
+def presence_timeout() -> timedelta:
+    """How long without a sighting before we call someone "left".
+
+    Without a door line, not being seen is the only clue, so it's short. With
+    one, walking out is seen directly and the timeout is only a backup for exits
+    the camera missed -- short would mark people "left" while they sit on the
+    couch out of view.
+    """
+    minutes = (settings.door_presence_timeout_minutes if _door_cameras()
+               else settings.presence_timeout_minutes)
+    return timedelta(minutes=minutes)
 
 
 async def track_presence(event: Event) -> None:
@@ -156,18 +165,66 @@ async def arrive_through_door(event: Event) -> None:
     )
 
 
-def _door_cameras() -> set[str]:
-    from app.vision.doorway import parse_door_lines
+async def leave_through_door(event: Event) -> None:
+    """Someone walked out across a door line: they've left, right now.
 
-    return set(parse_door_lines(settings.door_lines))
+    People leave with their back to the camera, so the track may never have
+    shown a face. Then, if exactly one person is home and no camera can see
+    them anywhere else, it must have been them (marked "guessed").
+    """
+    camera = event.payload.get("camera")
+    person_id, guessed = event.person_id, False
+    if person_id is None:
+        person_id = _only_one_home()
+        guessed = person_id is not None
+        if person_id is None:
+            log.info("someone walked out at %s; can't tell who", camera)
+            return
+
+    with session_scope() as session:
+        person = session.get(Person, person_id)
+        if person is None:
+            return
+        was_home = person.is_home
+        person.is_home = False
+        name = person.name
+
+    if not was_home:
+        return
+    await bus.publish(
+        Event(
+            type=EventType.PRESENCE_LEFT,
+            source=event.source,
+            person_id=person_id,
+            confidence=event.confidence,
+            payload={"name": name, "via": "door", "camera": camera, "guessed": guessed},
+        )
+    )
+
+
+def _only_one_home() -> int | None:
+    from app.vision import cameras
+
+    with session_scope() as session:
+        home = [p.id for p in session.query(Person).filter(Person.is_home.is_(True))]
+    if len(home) != 1:
+        return None
+    still_seen = {match.person_id for match, _ in cameras.present_anywhere()}
+    return None if home[0] in still_seen else home[0]
+
+
+def _door_cameras() -> set[str]:
+    from app.vision.doorway import door_lines
+
+    return set(door_lines())
 
 
 async def expire_presence() -> None:
-    """Mark people as gone once they haven't been seen for PRESENCE_TIMEOUT.
+    """Mark people as gone once they haven't been seen for presence_timeout().
 
     Called on a timer by the scheduler in main.py.
     """
-    cutoff = datetime.now(timezone.utc) - PRESENCE_TIMEOUT
+    cutoff = datetime.now(timezone.utc) - presence_timeout()
     departed: list[tuple[int, str]] = []
 
     with session_scope() as session:
@@ -372,5 +429,6 @@ def register_handlers() -> None:
     bus.subscribe(mirror_to_mqtt)
     bus.subscribe(track_presence, {EventType.PERSON_RECOGNIZED, EventType.PERSON_SEEN})
     bus.subscribe(arrive_through_door, {EventType.PERSON_ENTERED})
+    bus.subscribe(leave_through_door, {EventType.PERSON_EXITED})
     bus.subscribe(evaluate_rules)
     log.info("automation handlers registered (%d rules)", len(RULES))

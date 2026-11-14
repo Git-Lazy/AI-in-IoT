@@ -5,7 +5,9 @@ async event bus. This is the module that turns pixels into the structured events
 the rest of the platform reasons about.
 
 On a camera with a door line (see doorway.py), a track whose feet cross the
-line inward becomes one PERSON_ENTERED event, named once the face is known.
+line inward becomes one PERSON_ENTERED event, named once the face is known;
+crossing outward is one PERSON_EXITED, named by whoever the track already was
+(people leave with their back to the camera, so there's no face to wait for).
 
 Identity is decided per *track* (one person, followed across frames by YOLO), by
 vote: a face has to match the same person in several recent frames before the
@@ -29,13 +31,14 @@ from app.db.models import FaceEmbedding, Person
 from app.events import Event, EventType, bus
 from app.vision.camera import Camera
 from app.vision.detector import Detection, build_detector
-from app.vision.doorway import Crossing, DoorLine, door_line_for, feet
+from app.vision.doorway import INSIDE, OUTSIDE, Crossing, DoorLine, door_line_for, feet
 from app.vision.recognizer import FaceGallery, FaceRecognizer, Match
 
 log = logging.getLogger(__name__)
 
 # How often to re-confirm a recognized person who is still in frame. Must stay
-# well under rules.PRESENCE_TIMEOUT or they get marked "left" mid-visit.
+# well under the presence timeout (rules.presence_timeout) or they get marked
+# "left" mid-visit.
 SEEN_HEARTBEAT_SECONDS = 30
 # Once a track is trusted, re-check the face this often rather than every frame.
 REVERIFY_SECONDS = 1.0
@@ -103,6 +106,16 @@ class VisionPipeline:
         if self._thread is not None:
             self._thread.join(timeout=3.0)
         self._camera.stop()
+
+    def set_door(self, line: DoorLine | None) -> None:
+        """Swap the door line live. Everyone's side is re-learned from scratch,
+        so moving the line under someone's feet can't count as them crossing it."""
+        with self._tracks_lock:
+            self.door = line
+            for track in self._tracks.values():
+                track.door = Crossing()
+                track.entered_at = None
+        log.info("camera %s door line %s", self.camera_name, "set" if line else "removed")
 
     def reload_gallery(self) -> None:
         """Pull enrolled embeddings out of the database into memory.
@@ -215,11 +228,41 @@ class VisionPipeline:
     # ------------------------------------------------------------------ door
 
     def _check_door(self, frame: np.ndarray, det: Detection, track: TrackState, now: float) -> None:
+        door = self.door                     # the dashboard can swap it mid-frame
+        if door is None:
+            return
         h, w = frame.shape[:2]
         x, y = feet(det.box, w, h)
-        if track.door.update(self.door.offset(x, y)) == "in":
+        crossed = track.door.update(door.offset(x, y))
+        if crossed == "in":
             track.entered_at = now
             log.info("track #%s walked in at %s", det.track_id, self.camera_name)
+        elif crossed == "out":
+            if track.entered_at is not None:
+                # In and straight back out before we knew who: net nothing happened.
+                track.entered_at = None
+                log.info("track #%s stepped in and back out at %s", det.track_id, self.camera_name)
+                return
+            self._announce_exit(det.track_id, track)
+
+    def _announce_exit(self, track_id: int, track: TrackState) -> None:
+        match = track.identity
+        known = match is not None and match.person_id is not None
+        log.info("track #%s walked out as %s", track_id, match.name if known else "nobody recognized")
+        bus.publish_threadsafe(
+            Event(
+                type=EventType.PERSON_EXITED,
+                source=f"vision:{self.camera_name}",
+                person_id=match.person_id if known else None,
+                confidence=round(1.0 - match.distance, 3) if match else None,
+                payload={
+                    "name": match.name if known else None,
+                    "face": "known" if known else "unknown" if match else "none",
+                    "track_id": track_id,
+                    "camera": self.camera_name,
+                },
+            )
+        )
 
     def _announce_entries(self, now: float, gone: dict[int, TrackState] | None = None) -> None:
         """Publish PERSON_ENTERED for tracks that walked in.
@@ -347,15 +390,16 @@ class VisionPipeline:
         annotated = frame.copy()
         need = settings.face_votes_required
         h, w = frame.shape[:2]
-        if self.door is not None:
-            a, b = self.door.pixels(w, h)
+        door = self.door
+        if door is not None:
+            a, b = door.pixels(w, h)
             cv2.line(annotated, a, b, (0, 215, 255), 2)
             # Label the inside, a little off the middle of the line.
             mx, my = (a[0] + b[0]) / 2, (a[1] + b[1]) / 2
             nx, ny = -(b[1] - a[1]), b[0] - a[0]
             norm = max((nx * nx + ny * ny) ** 0.5, 1.0)
             nx, ny = nx / norm * 18, ny / norm * 18
-            if self.door.offset((mx + nx) / w, (my + ny) / h) < 0:
+            if door.offset((mx + nx) / w, (my + ny) / h) < 0:
                 nx, ny = -nx, -ny
             cv2.putText(annotated, "door  (inside)", (int(mx + nx) - 50, int(my + ny) + 5),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 215, 255), 1)
@@ -377,9 +421,15 @@ class VisionPipeline:
             if det.track_id is not None:
                 label += f" #{det.track_id}"
             cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
-            if self.door is not None and track is not None:
+            if door is not None and track is not None:
+                # Feet dot + which side of the door line we think they're on.
+                # "?" until they've been clearly on one side for a few frames;
+                # a person whose feet are out of frame is always "IN".
                 fx, fy = feet(det.box, w, h)
-                cv2.circle(annotated, (int(fx * w), int(fy * h) - 4), 5, color, -1)
+                px, py = int(fx * w), int(fy * h) - 4
+                side = {INSIDE: "IN", OUTSIDE: "OUT"}.get(track.door.side, "?")
+                cv2.circle(annotated, (px, py), 5, color, -1)
+                cv2.putText(annotated, side, (px + 8, py), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 215, 255), 2)
             cv2.putText(
                 annotated, label, (x1, max(y1 - 8, 12)),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2,

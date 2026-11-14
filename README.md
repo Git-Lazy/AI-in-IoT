@@ -109,20 +109,27 @@ Only the embedding vector is stored — never the photograph. That follows direc
 from the FaceNet approach (Schroff et al., 2015) and is the project's main privacy
 property.
 
-## Door lines: arriving means walking in
+## Door lines: arriving and leaving through the door
 
 Being in view of the entry camera isn't the same as coming home. Draw a line
-across the doorway, and only **walking in across it** counts as an arrival:
+across the doorway, and only **walking in across it** counts as an arrival.
+
+**On the dashboard** (admin): pick the entry camera and press **Door line**.
+Click the floor at one side of the doorway, then the other, just inside the
+threshold. A green arrow shows which side counts as inside; press **Flip** if
+it's backwards, then **Save line**. It takes effect immediately and is saved in
+the database. Mount the camera inside, facing the door.
+
+**Or in `.env`**, as a starting value (a line saved on the dashboard wins):
 
 ```
 DOOR_LINES=front_door:0.15,0.70,0.85,0.70
 ```
 
 The numbers are two points, `x1,y1,x2,y2`, as fractions of the frame
-(0,0 is top-left, 1,1 is bottom-right). Mount the camera inside, facing the door.
-Draw the line on the floor just inside the threshold. The side toward the bottom
-of the picture is "inside"; add `:flip` if that's backwards for your camera.
-The line appears in yellow on the preview, and each person's feet appear as a dot.
+(0,0 is top-left, 1,1 is bottom-right). The side toward the bottom of the
+picture is "inside"; add `:flip` to reverse it. The line appears in yellow on
+the preview, and each person's feet appear as a dot.
 
 - A person whose feet move from the far side to the near side, and stay there
   for 3 frames, has **entered**. Standing on the line (a dead band of
@@ -132,6 +139,23 @@ The line appears in yellow on the preview, and each person's feet appear as a do
   person is an unrecognized entry and the phone gets an alert.
 - On that camera, being recognized while standing in view no longer marks
   you home. Other cameras still do: someone seen on the couch is clearly home.
+- **Walking out** across the line marks the person away immediately, and the
+  usual away rules run (lights and AC off once nobody is home). People leave
+  with their back to the camera, so the exit is named by whoever the track
+  already was. With no face at all, if exactly one person is home and no other
+  camera can see them, it was them (shown as a guess in the feed).
+- Stepping in and straight back out before being recognized counts as nothing.
+- With a door line, not being seen only marks someone away after
+  `DOOR_PRESENCE_TIMEOUT_MINUTES` (120), as a backup for missed exits. Without
+  one, it's `PRESENCE_TIMEOUT_MINUTES` (5), since that's the only clue.
+
+**When a crossing isn't detected:** each person's feet dot on the preview is
+labeled **IN**, **OUT** or **?** (not clearly on either side yet). It has to
+read OUT before you cross and IN after. If it says IN all the time, your feet
+are probably out of frame: the bottom of your box is the bottom of the
+picture. Aim the camera so the floor at the doorway is visible, or draw the
+line higher. If the label resets when you walk past, the tracker lost you and
+started a new track; walk a little slower or improve the lighting.
 
 ## Roles and camera-checked control
 
@@ -170,6 +194,24 @@ clears on its own, and sensors can be triggered from the dashboard.
 When a real device arrives, switch it from Simulated to Real in Admin → Devices.
 It keeps its id, so its permissions and preferences carry over, and commands
 start going to `homeai/device/<id>/set` over MQTT instead.
+
+### House view
+
+**House view** in the dashboard header shows a floor plan of a basic house:
+Garage, Living Room, Kitchen, Bedroom, Entry and Bathroom. Each device appears
+in its room as a live icon:
+
+- Lights glow and tint the room with their brightness.
+- The AC shows the room temperature, colored by mode.
+- The lock shows a closed or open padlock.
+- The garage door on the plan opens and closes.
+- Motion sensors pulse red, and door sensors swing open.
+
+Click a device to control it; control is camera-checked, as on the device
+cards. Each camera appears in its room, with the names of the people it
+recognizes. A device whose room isn't on the plan (say, "Porch") is listed
+underneath. Room names match case-insensitively, with a few aliases ("Foyer"
+goes in Entry, "Lounge" in Living Room). Open `/#house` to go straight there.
 
 ### Emulating real hardware over MQTT
 
@@ -273,7 +315,7 @@ Assistant, and mirrors how Frigate exposes its detections.
 | 2 | Capture and process live feeds | Done (`vision/camera.py`) |
 | 3 | Detect people and basic events | Done (YOLO11 + tracking) |
 | 4 | Facial recognition for registered members | Done (MTCNN + FaceNet, voting) |
-| 5 | Identify entering/leaving | Entering: door-line crossing (`app/vision/doorway.py`). Leaving: timeout, door-line exit next |
+| 5 | Identify entering/leaving | Door-line crossing both ways (`app/vision/doorway.py`), timeout as backup |
 | 6 | Store event logs | Done (`EventLog`) |
 | 7 | Notifications | Dashboard + phone push (ntfy), with camera snapshot on unknown faces |
 | 8 | Dashboard | Done |

@@ -75,6 +75,17 @@ def test_in_out_in():
 # ------------------------------------------------------------------ pipeline
 
 
+@pytest.fixture(autouse=True)
+def _db():
+    """Saved door lines live in the database; start each test without any."""
+    from app.db import engine, init_db
+    from app.db.models import CameraSetting
+
+    init_db()
+    CameraSetting.__table__.drop(engine, checkfirst=True)
+    init_db()
+
+
 @pytest.fixture
 def door_pipeline(monkeypatch):
     from app.vision import pipeline as pl
@@ -153,3 +164,59 @@ def test_camera_without_door_line_never_announces_entries(monkeypatch):
     for y in (0.4, 0.4, 0.4, 0.7, 0.8, 0.9):
         vp._handle(FRAME, [Detection("person", 0.9, (280, 0, 360, int(y * 480)), 4)])
     assert _entries(sent) == []
+
+
+def test_moving_the_line_under_someone_is_not_a_crossing(door_pipeline):
+    vp, sent, clock = door_pipeline
+    for _ in range(5):
+        _step(vp, clock, 0.5)                            # standing beyond the line (y=0.6)
+    vp.set_door(DoorLine(0.1, 0.3, 0.9, 0.3))           # line redrawn above their feet
+    for _ in range(10):
+        _step(vp, clock, 0.5)
+    clock[0] += settings.door_identify_seconds + 1
+    _step(vp, clock, 0.5)
+    assert _entries(sent) == []
+
+
+def test_door_line_from_dict_validates():
+    assert DoorLine.from_dict({"x1": 0, "y1": 0.5, "x2": 1, "y2": 0.5}).to_dict() ==         {"x1": 0.0, "y1": 0.5, "x2": 1.0, "y2": 0.5, "flip": False}
+    for bad in ({"x1": 0, "y1": 0.5}, {"x1": 0, "y1": 0.5, "x2": 0.01, "y2": 0.5},
+                {"x1": -1, "y1": 0.5, "x2": 1, "y2": 0.5}):
+        with pytest.raises(ValueError):
+            DoorLine.from_dict(bad)
+
+
+# ---------------------------------------------------------------- walking out
+
+
+def _exits(sent):
+    return [e for e in sent if e.type == EventType.PERSON_EXITED]
+
+
+def test_walking_out_is_announced_by_who_the_track_was(door_pipeline):
+    from app.vision.pipeline import TrackState
+
+    vp, sent, clock = door_pipeline
+    vp._tracks[4] = TrackState(identity=Match(person_id=1, name="Samuel", distance=0.2))
+    for y in (0.85, 0.85, 0.85, 0.7, 0.5, 0.45, 0.4, 0.4):
+        _step(vp, clock, y)
+    [exit_] = _exits(sent)
+    assert exit_.person_id == 1 and exit_.payload["name"] == "Samuel"
+    assert _entries(sent) == []
+
+
+def test_walking_out_with_no_face_is_still_announced(door_pipeline):
+    vp, sent, clock = door_pipeline
+    for y in (0.85, 0.85, 0.85, 0.5, 0.45, 0.4):
+        _step(vp, clock, y)
+    [exit_] = _exits(sent)
+    assert exit_.person_id is None and exit_.payload["face"] == "none"
+
+
+def test_stepping_in_and_straight_back_out_is_nothing(door_pipeline):
+    vp, sent, clock = door_pipeline
+    for y in (0.4, 0.4, 0.4, 0.75, 0.75, 0.75, 0.4, 0.4, 0.4):
+        _step(vp, clock, y)
+    clock[0] += settings.door_identify_seconds + 1
+    _step(vp, clock, 0.4)
+    assert _entries(sent) == [] and _exits(sent) == []

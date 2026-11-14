@@ -25,6 +25,10 @@ class FakeCamera:
 
     def __init__(self, name: str, room: str, present: list[Match] | None = None):
         self.camera_name, self.room, self.present = name, room, present or []
+        self.door = None
+
+    def set_door(self, line):
+        self.door = line
 
     def present_people(self):
         return list(self.present)
@@ -386,3 +390,111 @@ def test_unrecognized_entry_raises_an_alert(client, monkeypatch):
     asyncio.run(bus.publish(Event(type=EventType.PERSON_ENTERED, source="vision:front_door",
                                   payload={"name": None, "face": "none", "camera": "front_door"})))
     assert sent == [("Someone came in at front_door (no face seen).", "high")]
+
+
+# ------------------------------------------------------- door line editor
+
+
+def test_admin_draws_a_door_line_that_takes_effect_and_persists(client):
+    from app.vision.doorway import door_lines
+
+    ids = _setup_house(client)
+    cam = _see(room="Entry", name="front_door")
+    url = "/api/cameras/front_door/door"
+    line = {"x1": 0.1, "y1": 0.7, "x2": 0.9, "y2": 0.7}
+
+    assert client.put(url, json=line).status_code == 401              # admin only
+    assert client.put(url, json={**line, "x2": 0.12, "y2": 0.71}, headers=ids["admin"]).status_code == 400
+    assert client.put(url, json={**line, "x1": 1.5}, headers=ids["admin"]).status_code == 422
+    assert client.put("/api/cameras/nope/door", json=line, headers=ids["admin"]).status_code == 404
+
+    r = client.put(url, json={**line, "flip": True}, headers=ids["admin"])
+    assert r.status_code == 200
+    assert cam.door is not None and cam.door.flip                   # live, no restart
+    assert door_lines()["front_door"].y1 == 0.7                     # saved
+    [listed] = client.get("/api/cameras").json()
+    assert listed["door"] == {**line, "flip": True}
+
+
+def test_removing_a_line_overrides_the_env_setting(client, monkeypatch):
+    from app.config import settings
+    from app.vision.doorway import door_lines
+
+    monkeypatch.setattr(settings, "door_lines", "front_door:0.1,0.6,0.9,0.6")
+    ids = _setup_house(client)
+    cam = _see(room="Entry", name="front_door")
+    assert "front_door" in door_lines()
+    assert client.delete("/api/cameras/front_door/door", headers=ids["admin"]).status_code == 204
+    assert "front_door" not in door_lines() and cam.door is None
+
+
+
+# ------------------------------------------------------------ door exits
+
+
+def _exit_event(person_id=None, name=None):
+    from app.events import Event
+
+    return Event(type=EventType.PERSON_EXITED, source="vision:front_door", person_id=person_id,
+                 payload={"name": name, "face": "known" if person_id else "none", "camera": "front_door"})
+
+
+def _set_home(*person_ids):
+    with session_scope() as session:
+        for p in session.query(Person).all():
+            p.is_home = p.id in person_ids
+
+
+def test_walking_out_marks_you_away_and_shuts_down_an_empty_house(client):
+    from app.events import bus
+
+    ids = _setup_house(client)
+    h = ids["admin"]
+    client.post("/api/devices/light.living_room/command", json={"payload": {"state": "ON"}}, headers=h)
+    _set_home(ids["sam"])
+    left: list = []
+
+    async def record(e):
+        left.append(e)
+
+    bus.subscribe(record, {EventType.PRESENCE_LEFT})
+    asyncio.run(bus.publish(_exit_event(ids["sam"], "Sam")))
+
+    home = {p["name"]: p["is_home"] for p in client.get("/api/people").json()}
+    assert home["Sam"] is False
+    assert [(e.payload["name"], e.payload["via"], e.payload["guessed"]) for e in left] == [("Sam", "door", False)]
+    state = {d["id"]: d["state"] for d in client.get("/api/devices").json()}
+    assert state["light.living_room"]["state"] == "OFF"            # nobody home: away_shutdown
+    asyncio.run(bus.publish(_exit_event(ids["sam"], "Sam")))       # already away: nothing more
+    assert len(left) == 1
+
+
+def test_faceless_exit_is_the_only_person_home_unless_seen_elsewhere(client):
+    from app.events import bus
+
+    ids = _setup_house(client)
+    home = lambda: {p["name"]: p["is_home"] for p in client.get("/api/people").json()}
+
+    _set_home(ids["sam"], ids["kid"])                              # two home: can't tell who
+    asyncio.run(bus.publish(_exit_event()))
+    assert home() == {"Sam": True, "Kid": True}
+
+    _set_home(ids["kid"])
+    _see((ids["kid"], "Kid"), room="Living Room", name="living_room")   # ...but still on camera
+    asyncio.run(bus.publish(_exit_event()))
+    assert home()["Kid"] is True
+
+    cameras._pipelines = {}                                        # out of sight: must be them
+    asyncio.run(bus.publish(_exit_event()))
+    assert home()["Kid"] is False
+
+
+def test_presence_timeout_is_a_long_backup_once_there_is_a_door_line(client, monkeypatch):
+    from datetime import timedelta
+
+    from app.automation.rules import presence_timeout
+    from app.config import settings
+
+    assert presence_timeout() == timedelta(minutes=5)
+    monkeypatch.setattr(settings, "door_lines", "front_door:0.1,0.6,0.9,0.6")
+    assert presence_timeout() == timedelta(minutes=120)

@@ -11,14 +11,15 @@ Two things keep a crossing honest:
     is on neither side, so they can't flicker in/out/in;
   * confirmation -- the feet must stay on the new side for several frames.
 
-Configured with DOOR_LINES, one entry per camera, coordinates as fractions of
-the frame (0..1, origin top-left):
+Drawn on the dashboard (two clicks on the camera preview, saved in the
+database), or set in .env with DOOR_LINES -- one entry per camera, coordinates
+as fractions of the frame (0..1, origin top-left):
 
     DOOR_LINES=front_door:0.15,0.70,0.85,0.70
 
 "Inside" is the side of the line facing the bottom-center of the image --
 right for a camera mounted inside looking at the door. Add ":flip" if your
-camera sees it the other way round.
+camera sees it the other way round. A line saved from the dashboard wins over .env.
 """
 
 from __future__ import annotations
@@ -28,10 +29,13 @@ import math
 from dataclasses import dataclass
 
 from app.config import settings
+from app.db import session_scope
+from app.db.models import CameraSetting
 
 log = logging.getLogger(__name__)
 
 INSIDE, OUTSIDE = 1, -1
+MIN_LENGTH = 0.05            # shorter than this is a misclick, not a doorway
 
 
 @dataclass(frozen=True)
@@ -56,6 +60,22 @@ class DoorLine:
             sign = -sign
         return sign * cross / length
 
+    @classmethod
+    def from_dict(cls, data: dict) -> "DoorLine":
+        """Validated DoorLine from {"x1", "y1", "x2", "y2", "flip"}. Raises ValueError."""
+        try:
+            values = [float(data[k]) for k in ("x1", "y1", "x2", "y2")]
+        except (KeyError, TypeError, ValueError):
+            raise ValueError("a door line needs x1, y1, x2, y2") from None
+        if not all(0.0 <= v <= 1.0 for v in values):
+            raise ValueError("door line points must be inside the picture (0 to 1)")
+        if math.hypot(values[2] - values[0], values[3] - values[1]) < MIN_LENGTH:
+            raise ValueError("door line is too short -- click two points across the doorway")
+        return cls(*values, flip=bool(data.get("flip", False)))
+
+    def to_dict(self) -> dict:
+        return {"x1": self.x1, "y1": self.y1, "x2": self.x2, "y2": self.y2, "flip": self.flip}
+
     def pixels(self, width: int, height: int) -> tuple[tuple[int, int], tuple[int, int]]:
         return ((round(self.x1 * width), round(self.y1 * height)),
                 (round(self.x2 * width), round(self.y2 * height)))
@@ -76,8 +96,33 @@ def parse_door_lines(spec: str) -> dict[str, DoorLine]:
     return lines
 
 
+def door_lines() -> dict[str, DoorLine]:
+    """Every camera's door line: .env first, then whatever was saved on the dashboard."""
+    lines = parse_door_lines(settings.door_lines)
+    with session_scope() as session:
+        for row in session.query(CameraSetting).all():
+            if row.door_line is None:
+                lines.pop(row.camera, None)
+                continue
+            try:
+                lines[row.camera] = DoorLine.from_dict(row.door_line)
+            except ValueError as exc:
+                log.warning("ignoring saved door line for %s: %s", row.camera, exc)
+    return lines
+
+
 def door_line_for(camera_name: str) -> DoorLine | None:
-    return parse_door_lines(settings.door_lines).get(camera_name)
+    return door_lines().get(camera_name)
+
+
+def save_door_line(camera_name: str, line: DoorLine | None) -> None:
+    """Persist a camera's door line; None removes it (even one set in .env)."""
+    with session_scope() as session:
+        row = session.get(CameraSetting, camera_name)
+        if row is None:
+            row = CameraSetting(camera=camera_name)
+            session.add(row)
+        row.door_line = line.to_dict() if line else None
 
 
 def feet(box: tuple[int, int, int, int], width: int, height: int) -> tuple[float, float]:

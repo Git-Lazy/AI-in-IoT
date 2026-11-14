@@ -54,6 +54,8 @@
     button.danger:hover { border-color: var(--bad); color: var(--bad); }
     button.on { background: #1c3a2a; border-color: #2f6b49; color: var(--ok); }
     img#preview { width: 100%; display: block; background: #000; min-height: 180px; }
+    #preview-wrap { position: relative; }
+    #door-overlay { position: absolute; inset: 0; width: 100%; height: 100%; display: none; cursor: crosshair; }
     .empty, .hint { color: var(--muted); font-size: 13px; }
     .hint { font-size: 12px; margin-top: 8px; }
     .ok { color: var(--ok); } .err { color: var(--warn); } .bad { color: var(--bad); }
@@ -88,6 +90,27 @@
     h3 { font-size: 13px; margin: 16px 0 8px; color: var(--muted); font-weight: 600; }
     h3:first-child { margin-top: 0; }
 
+    /* view switch */
+    .views { display: flex; gap: 4px; }
+    .views button { background: transparent; color: var(--muted); }
+    .views button.active { background: var(--panel2); color: var(--text); border-color: var(--accent); }
+
+    /* house view */
+    #house { margin: 16px; }
+    #house-scroll { overflow-x: auto; }
+    #house-wrap { position: relative; min-width: 720px; }
+    #house-svg { width: 100%; display: block; user-select: none; }
+    #house-svg .hdev { cursor: pointer; }
+    #house-svg .hdev:hover .hit { stroke: var(--accent); }
+    #house-svg .hdev.sel .hit { stroke: var(--accent); stroke-width: 2; }
+    #house-svg text { font-family: inherit; }
+    #house-svg .pulse { animation: pulse 1s ease-in-out infinite; }
+    @keyframes pulse { 50% { opacity: .25; } }
+    #house-pop { position: absolute; width: 250px; z-index: 5; display: none; box-shadow: 0 8px 28px rgba(0,0,0,.55); }
+    #house-pop .close { position: absolute; top: 6px; right: 6px; padding: 0 7px; line-height: 20px; }
+    #house-pop .top { padding-right: 26px; }
+    .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+
     dialog { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 18px; width: min(360px, 92vw); }
     dialog::backdrop { background: rgba(0,0,0,.55); }
     dialog h2 { margin: 0 0 12px; font-size: 15px; }
@@ -97,6 +120,10 @@
 <body>
   <header>
     <h1>Emerging AI IoT Integration</h1>
+    <nav class="views">
+      <button data-view="dash" class="active" onclick="showView('dash')">Dashboard</button>
+      <button data-view="house" onclick="showView('house')">House view</button>
+    </nav>
     <span class="pill" id="s-ws">socket</span>
     <span class="pill" id="s-mqtt">mqtt</span>
     <span class="pill" id="s-vision">vision</span>
@@ -111,10 +138,25 @@
     <div class="col">
       <section>
         <h2>Camera
-          <span class="right"><select id="camera-pick" onchange="pickCamera()" style="display:none"></select></span>
+          <span class="right row">
+            <button id="door-btn" style="display:none" onclick="startDoorEdit()" title="Draw the line people cross when they walk in">Door line</button>
+            <select id="camera-pick" onchange="pickCamera()" style="display:none"></select>
+          </span>
         </h2>
-        <img id="preview" src="/stream/preview" alt="camera preview"
-             onerror="this.style.display='none'" />
+        <div id="preview-wrap">
+          <img id="preview" src="/stream/preview" alt="camera preview"
+               onerror="this.style.display='none'" />
+          <svg id="door-overlay" onclick="doorClick(event)"></svg>
+        </div>
+        <div class="body" id="door-edit" style="display:none; border-bottom:1px solid var(--line)">
+          <div class="hint" id="door-hint" style="margin:0 0 8px"></div>
+          <div class="row">
+            <button id="door-flip" onclick="flipDoor()">Flip inside / outside</button>
+            <button class="primary" id="door-save" onclick="saveDoor()">Save line</button>
+            <button class="danger" id="door-remove" onclick="removeDoor()">Remove line</button>
+            <button onclick="endDoorEdit()">Cancel</button>
+          </div>
+        </div>
         <div class="body" id="at-camera"><span class="hint" style="margin:0">camera starting…</span></div>
       </section>
       <section>
@@ -142,6 +184,26 @@
       </section>
     </div>
   </main>
+
+  <!-- House view: a floor plan with every device in its room, clickable. -->
+  <section id="house" style="display:none">
+    <h2>House <span class="right hint" style="margin:0" id="house-people"></span></h2>
+    <div class="body">
+      <div id="house-status" class="hint" style="margin:0 0 8px; min-height:18px">
+        Click a device to control it. Control is checked against whoever the camera in that room sees.</div>
+      <div id="house-scroll">
+        <div id="house-wrap">
+          <svg id="house-svg" viewBox="0 0 1000 630" onclick="houseBackgroundClick(event)"></svg>
+          <div id="house-pop" class="dev"></div>
+        </div>
+      </div>
+      <div class="legend" style="margin-top:10px">
+        <span>💡 light (glow = brightness)</span><span>📺 switch / plug</span><span>🌡 AC: blue cool · orange heat</span>
+        <span>🔒 lock</span><span>🚗 garage door</span><span>● motion (pulses red)</span><span>🎥 camera · who it sees</span>
+      </div>
+      <div id="house-other"></div>
+    </div>
+  </section>
 
   <!-- Admin area: first-run setup, or the admin tools once logged in. -->
   <section id="admin" style="display:none">
@@ -281,6 +343,9 @@ let kinds = {};
 let roles = null;
 let adminPeople = [];
 let camera = null;
+let cameraList = [];
+let people = [];
+let view = "dash";
 
 // ------------------------------------------------------------------ api
 
@@ -318,6 +383,8 @@ async function loadHealth() {
 async function loadCameras() {
   let cams = [];
   try { cams = await api("/api/cameras"); } catch { return; }
+  cameraList = cams;
+  if (view === "house") renderHouse();
   const pick = $("camera-pick");
   if (cams.length > 1 && pick.options.length !== cams.length) {
     pick.innerHTML = cams.map((c) => `<option value="${esc(c.name)}">${esc(c.name)} (${esc(c.room)})</option>`).join("");
@@ -325,6 +392,7 @@ async function loadCameras() {
   }
   camera = camera || (cams[0] && cams[0].name);
   const cam = cams.find((c) => c.name === camera);
+  $("door-btn").style.display = cam && (isAdmin() || status.setup_required) && !doorEdit ? "" : "none";
   $("at-camera").innerHTML = !cam
     ? '<span class="hint" style="margin:0">no camera running</span>'
     : `<span class="hint" style="margin:0">${esc(cam.name)} · ${esc(cam.room || "no room")} — at this camera:</span>
@@ -333,11 +401,107 @@ async function loadCameras() {
 }
 
 function pickCamera() {
+  endDoorEdit();
   camera = $("camera-pick").value;
   const img = $("preview");
   img.style.display = "";
   img.src = `/stream/preview?camera=${encodeURIComponent(camera)}`;
   loadCameras();
+}
+
+// ------------------------------------------------------------ door line
+// Two clicks on the preview draw the line people cross when they walk in.
+// Coordinates are fractions of the picture, the same as the backend uses.
+
+let doorEdit = null;            // { points: [[x, y], ...], flip }
+
+function doorOffset(L, x, y) {  // mirrors DoorLine.offset in app/vision/doorway.py
+  const dx = L.x2 - L.x1, dy = L.y2 - L.y1, len = Math.hypot(dx, dy);
+  if (!len) return 0;
+  const cross = dx * (y - L.y1) - dy * (x - L.x1);
+  let sign = dx * (1 - L.y1) - dy * (0.5 - L.x1) >= 0 ? 1 : -1;
+  if (L.flip) sign = -sign;
+  return sign * cross / len;
+}
+
+function startDoorEdit() {
+  const cam = cameraList.find((c) => c.name === camera);
+  if (!cam) return;
+  const d = cam.door;
+  doorEdit = { points: d ? [[d.x1, d.y1], [d.x2, d.y2]] : [], flip: d ? d.flip : false };
+  $("door-edit").style.display = "";
+  $("door-overlay").style.display = "block";
+  $("door-remove").style.display = d ? "" : "none";
+  $("door-btn").style.display = "none";
+  drawDoor();
+}
+
+function endDoorEdit() {
+  doorEdit = null;
+  $("door-edit").style.display = "none";
+  $("door-overlay").style.display = "none";
+  loadCameras();
+}
+
+function doorClick(e) {
+  if (!doorEdit) return;
+  const r = e.currentTarget.getBoundingClientRect();
+  const pt = [Math.min(Math.max((e.clientX - r.left) / r.width, 0), 1),
+              Math.min(Math.max((e.clientY - r.top) / r.height, 0), 1)];
+  doorEdit.points = doorEdit.points.length >= 2 ? [pt] : [...doorEdit.points, pt];
+  drawDoor();
+}
+
+function flipDoor() { if (doorEdit) { doorEdit.flip = !doorEdit.flip; drawDoor(); } }
+
+function drawDoor() {
+  const svg = $("door-overlay");
+  const img = $("preview");
+  const W = img.naturalWidth || 640, H = img.naturalHeight || 480;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.setAttribute("preserveAspectRatio", "none");
+  const pts = doorEdit.points;
+  const ready = pts.length === 2;
+  $("door-hint").innerHTML = !pts.length
+    ? "Click the floor at <b>one side</b> of the doorway, just inside the threshold."
+    : !ready ? "Now click the floor at the <b>other side</b> of the doorway."
+    : "Walking from the far side over to the <b>inside</b> side counts as arriving. Wrong way round? Flip it. Click again to start over.";
+  $("door-save").disabled = $("door-flip").disabled = !ready;
+
+  let out = pts.map(([x, y]) => `<circle cx="${x * W}" cy="${y * H}" r="7" fill="#4da3ff" stroke="#fff" stroke-width="2"/>`).join("");
+  if (ready) {
+    const L = { x1: pts[0][0], y1: pts[0][1], x2: pts[1][0], y2: pts[1][1], flip: doorEdit.flip };
+    // Arrow from the middle of the line toward the inside.
+    const mx = (L.x1 + L.x2) / 2, my = (L.y1 + L.y2) / 2;
+    let nx = -(L.y2 - L.y1) * H, ny = (L.x2 - L.x1) * W;          // normal, in pixels
+    const n = Math.hypot(nx, ny) || 1;
+    nx = nx / n * 60; ny = ny / n * 60;
+    if (doorOffset(L, mx + nx / W * 0.1, my + ny / H * 0.1) < 0) { nx = -nx; ny = -ny; }
+    const ax = mx * W, ay = my * H;
+    out = `<line x1="${L.x1 * W}" y1="${L.y1 * H}" x2="${L.x2 * W}" y2="${L.y2 * H}" stroke="#4da3ff" stroke-width="4" stroke-dasharray="12 6"/>
+      <line x1="${ax}" y1="${ay}" x2="${ax + nx}" y2="${ay + ny}" stroke="#37d67a" stroke-width="4"/>
+      <circle cx="${ax + nx}" cy="${ay + ny}" r="8" fill="#37d67a"/>
+      <text x="${ax + nx * 1.4}" y="${ay + ny * 1.4 + 6}" fill="#37d67a" font-size="20" font-weight="700" text-anchor="middle"
+            style="paint-order:stroke" stroke="#000" stroke-width="4">inside</text>` + out;
+  }
+  svg.innerHTML = out;
+}
+
+async function saveDoor() {
+  const [[x1, y1], [x2, y2]] = doorEdit.points;
+  try {
+    await api(`/api/cameras/${encodeURIComponent(camera)}/door`, { method: "PUT",
+      body: { x1, y1, x2, y2, flip: doorEdit.flip } });
+    endDoorEdit();
+  } catch (e) { say($("door-hint"), e.message, "bad"); }
+}
+
+async function removeDoor() {
+  if (!confirm("Remove the door line? Being seen by this camera will count as arriving again.")) return;
+  try {
+    await api(`/api/cameras/${encodeURIComponent(camera)}/door`, { method: "DELETE" });
+    endDoorEdit();
+  } catch (e) { say($("door-hint"), e.message, "bad"); }
 }
 
 // --------------------------------------------------------------- devices
@@ -349,6 +513,7 @@ async function loadDevices() {
 }
 
 function renderDevices() {
+  if (view === "house") renderHouse();
   const box = $("devices");
   // Don't redraw under the user's finger -- a live state update would reset the slider.
   const focus = document.activeElement;
@@ -429,7 +594,7 @@ function deviceCard(d) {
 
 async function cmd(id, payload) {
   document.activeElement.blur();          // let live updates redraw the card again
-  const el = $("cmd-status");
+  const el = view === "house" ? $("house-status") : $("cmd-status");
   say(el, "checking who's at the camera…");
   try {
     const r = await api(`/api/devices/${encodeURIComponent(id)}/command`, { method: "POST", body: { payload } });
@@ -441,13 +606,231 @@ async function cmd(id, payload) {
 
 async function simulate(id) {
   try { await api(`/api/devices/${encodeURIComponent(id)}/simulate`, { method: "POST", body: {} }); }
-  catch (e) { say($("cmd-status"), e.message, "bad"); }
+  catch (e) { say(view === "house" ? $("house-status") : $("cmd-status"), e.message, "bad"); }
+}
+
+// ------------------------------------------------------------ house view
+// A fixed floor plan. Devices land in the room whose name matches theirs;
+// rooms the plan doesn't have are listed underneath as ordinary cards.
+
+const ROOMS = [
+  { name: "Garage",      x: 20,  y: 20,  w: 250, h: 380, alias: ["garage"] },
+  { name: "Living Room", x: 270, y: 20,  w: 430, h: 320, alias: ["living room", "living", "lounge", "family room"] },
+  { name: "Kitchen",     x: 700, y: 20,  w: 280, h: 240, alias: ["kitchen", "dining", "dining room"] },
+  { name: "Bedroom",     x: 700, y: 260, w: 280, h: 300, alias: ["bedroom", "master bedroom", "bed room"] },
+  { name: "Entry",       x: 270, y: 340, w: 210, h: 220, alias: ["entry", "entrance", "foyer", "hallway", "front door"] },
+  { name: "Bathroom",    x: 480, y: 340, w: 220, h: 220, alias: ["bathroom", "bath"] },
+];
+const SLOT_W = 96, SLOT_H = 92;
+let houseSel = null;            // id of the device whose popup is open
+
+const roomFor = (name) => ROOMS.find((r) => r.alias.includes(String(name || "").trim().toLowerCase()));
+
+function mix(a, b, t) {
+  const ca = [1, 3, 5].map((i) => parseInt(a.slice(i, i + 2), 16));
+  const cb = [1, 3, 5].map((i) => parseInt(b.slice(i, i + 2), 16));
+  return "#" + ca.map((x, i) => Math.round(x + (cb[i] - x) * t).toString(16).padStart(2, "0")).join("");
+}
+
+function showView(v) {
+  view = v;
+  document.querySelectorAll(".views button").forEach((b) => b.classList.toggle("active", b.dataset.view === v));
+  document.querySelector("main").style.display = v === "dash" ? "" : "none";
+  $("house").style.display = v === "house" ? "" : "none";
+  $("admin").style.display = v === "dash" && (status.admin || status.setup_required) ? "" : "none";
+  try { history.replaceState(null, "", v === "house" ? "#house" : location.pathname); } catch {}
+  if (v === "house") renderHouse(); else closeHousePop();
+}
+
+function icon(d) {
+  const s = d.state || {};
+  switch (d.kind) {
+    case "light": {
+      const on = s.state === "ON", b = (s.brightness ?? 100) / 100;
+      return `<circle r="30" fill="#ffd54a" opacity="${on ? 0.12 + b * 0.3 : 0}"/>
+        <circle cy="-4" r="13" fill="${on ? mix("#6b5b1e", "#ffe27a", b) : "#2a313b"}" stroke="#666"/>
+        <rect x="-6" y="9" width="12" height="7" rx="1" fill="#777"/>`;
+    }
+    case "switch": {
+      const on = s.state === "ON";
+      return `<rect x="-20" y="-16" width="40" height="27" rx="3" fill="${on ? "#2f6b49" : "#232a35"}" stroke="#5a6678"/>
+        <line x1="0" y1="11" x2="0" y2="16" stroke="#5a6678" stroke-width="2"/><line x1="-8" y1="16" x2="8" y2="16" stroke="#5a6678" stroke-width="2"/>`;
+    }
+    case "thermostat": {
+      const color = { cool: "#4da3ff", heat: "#ff8a4d", auto: "#b07bff" }[s.mode] || "#5a6678";
+      return `<circle r="20" fill="#1d2633" stroke="${color}" stroke-width="3"/>
+        <text y="4" text-anchor="middle" font-size="12" font-weight="700" fill="#e6e9ee">${esc(Math.round(s.current ?? 0))}°</text>`;
+    }
+    case "lock": {
+      const locked = s.state === "LOCKED";
+      return `<path d="M-7,-3 v-7 a7,7 0 0 1 14,0 ${locked ? "v7" : "v-2"}" fill="none" stroke="#c9d1dc" stroke-width="3"/>
+        <rect x="-11" y="-3" width="22" height="17" rx="3" fill="${locked ? "#37d67a" : "#ffb020"}"/>`;
+    }
+    case "garage": {
+      const panels = { CLOSED: 4, OPEN: 1, OPENING: 2, CLOSING: 3 }[s.state] ?? 4;
+      let out = `<path d="M-22,14 v-26 l22,-8 l22,8 v26" fill="#1d2633" stroke="#5a6678"/>`;
+      for (let i = 0; i < panels; i++) out += `<rect x="-17" y="${-10 + i * 6}" width="34" height="5" fill="${s.state === "OPEN" ? "#ffb020" : "#6b7a8d"}"/>`;
+      return out;
+    }
+    case "motion_sensor":
+      return `<circle r="15" fill="none" stroke="#5a6678" stroke-dasharray="3 3"/>
+        <circle r="8" fill="${s.motion ? "#ff5d5d" : "#2a313b"}" class="${s.motion ? "pulse" : ""}" stroke="#666"/>`;
+    case "contact_sensor": {
+      const open = s.contact === "open";
+      return `<rect x="-11" y="-16" width="22" height="30" fill="none" stroke="#5a6678"/>
+        ${open ? `<path d="M-11,-16 L6,-11 L6,19 L-11,14 Z" fill="#ffb020" opacity=".8"/>`
+               : `<rect x="-11" y="-16" width="22" height="30" fill="#37d67a" opacity=".55"/>`}`;
+    }
+    case "temperature_sensor":
+      return `<rect x="-4" y="-18" width="8" height="24" rx="4" fill="none" stroke="#c9d1dc"/>
+        <circle cy="10" r="7" fill="#ff8a4d"/><rect x="-1.5" y="-10" width="3" height="18" fill="#ff8a4d"/>`;
+    default:
+      return `<circle r="12" fill="#2a313b" stroke="#666"/>`;
+  }
+}
+
+function shortState(d) {
+  const s = d.state || {};
+  switch (d.kind) {
+    case "light": return s.state === "ON" ? `on · ${s.brightness ?? 100}%` : "off";
+    case "switch": return s.state === "ON" ? "on" : "off";
+    case "thermostat": return `${s.mode || "off"} → ${s.target ?? "–"}°`;
+    case "lock": return (s.state || "").toLowerCase();
+    case "garage": return (s.state || "").toLowerCase();
+    case "motion_sensor": return s.motion ? "MOTION" : "clear";
+    case "contact_sensor": return s.contact || "";
+    case "temperature_sensor": return `${s.temperature ?? "–"}° · ${s.humidity ?? "–"}%`;
+    default: return "";
+  }
+}
+
+function renderHouse() {
+  const svg = $("house-svg");
+  const placed = {}, other = {};
+  for (const d of devices) {
+    const r = roomFor(d.room);
+    if (r) (placed[r.name] ||= []).push(d); else (other[d.room || "Unassigned"] ||= []).push(d);
+  }
+
+  let out = `<defs><pattern id="drive" width="12" height="12" patternUnits="userSpaceOnUse">
+      <path d="M0,12 L12,0" stroke="#232a35" stroke-width="2"/></pattern></defs>
+    <rect x="20" y="400" width="250" height="160" fill="url(#drive)"/>
+    <text x="145" y="490" text-anchor="middle" font-size="13" fill="#5a6678">Driveway</text>
+    <text x="420" y="602" font-size="12" fill="#5a6678">front door</text>`;
+
+  for (const r of ROOMS) {
+    const list = placed[r.name] || [];
+    // Lights fill their room with warm light; the brightest one wins.
+    const glow = Math.max(0, ...list.filter((d) => d.kind === "light" && d.state?.state === "ON")
+                                    .map((d) => (d.state.brightness ?? 100) / 100));
+    out += `<rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" fill="#151a21" stroke="#3a4352" stroke-width="3"/>
+      <rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" fill="#ffd54a" opacity="${(glow * 0.16).toFixed(3)}" pointer-events="none"/>
+      <text x="${r.x + 12}" y="${r.y + 22}" font-size="13" font-weight="600" fill="#8b95a5" letter-spacing=".5">${r.name.toUpperCase()}</text>`;
+  }
+
+  // Front door (gap with a swing arc) and the garage door, which shows the garage's state.
+  out += `<line x1="345" y1="560" x2="405" y2="560" stroke="#0f1216" stroke-width="5"/>
+    <path d="M345,560 L345,620 A60,60 0 0 0 405,560" fill="none" stroke="#5a6678" stroke-dasharray="4 4"/>`;
+  const garage = devices.find((d) => d.kind === "garage" && roomFor(d.room)?.name === "Garage");
+  if (garage) {
+    const st = garage.state?.state;
+    const frac = { CLOSED: 1, OPEN: 0, OPENING: 0.5, CLOSING: 0.5 }[st] ?? 1;
+    out += `<line x1="45" y1="400" x2="245" y2="400" stroke="#0f1216" stroke-width="5"/>
+      <line x1="45" y1="400" x2="${45 + 200 * frac}" y2="400" stroke="${st === "CLOSED" ? "#6b7a8d" : "#ffb020"}" stroke-width="7"/>`;
+  }
+
+  // Devices, in a grid inside their room.
+  for (const r of ROOMS) {
+    const list = placed[r.name] || [];
+    const cols = Math.max(1, Math.floor((r.w - 16) / SLOT_W));
+    list.forEach((d, i) => {
+      const cx = r.x + 16 + SLOT_W / 2 + (i % cols) * SLOT_W;
+      const cy = r.y + 72 + Math.floor(i / cols) * SLOT_H;
+      const sim = d.transport === "simulated";
+      const offline = !sim && !d.online;
+      const name = d.name.length > 13 ? d.name.slice(0, 12) + "…" : d.name;
+      out += `<g class="hdev ${houseSel === d.id ? "sel" : ""}" data-id="${esc(d.id)}" transform="translate(${cx},${cy})"
+                onclick="openHouseDevice('${esc(d.id)}', event)" opacity="${offline ? 0.45 : 1}">
+          <rect class="hit" x="-44" y="-34" width="88" height="86" rx="8" fill="transparent" stroke="transparent"/>
+          ${icon(d)}
+          <text y="32" text-anchor="middle" font-size="11" fill="#e6e9ee">${esc(name)}</text>
+          <text y="45" text-anchor="middle" font-size="10" fill="${offline ? "#ffb020" : "#8b95a5"}">${esc(offline ? "offline" : shortState(d))}</text>
+          ${sim ? "" : `<circle cx="34" cy="-26" r="4" fill="${d.online ? "#37d67a" : "#ffb020"}"><title>real device (MQTT)</title></circle>`}
+        </g>`;
+    });
+  }
+
+  // Cameras in the top-right of their room, with whoever they recognize.
+  for (const c of cameraList) {
+    const r = roomFor(c.room);
+    if (!r) continue;
+    const x = r.x + r.w - 22, y = r.y + 18;
+    out += `<g transform="translate(${x},${y})"><title>${esc(c.name)}</title>
+        <rect x="-12" y="-7" width="16" height="12" rx="2" fill="#4da3ff"/><path d="M4,-4 L11,-8 L11,8 L4,4 Z" fill="#4da3ff"/></g>`;
+    c.present.forEach((n, i) => {
+      out += `<g transform="translate(${r.x + r.w - 14},${r.y + 40 + i * 20})">
+          <rect x="${-8 - n.length * 7}" y="-11" width="${n.length * 7 + 14}" height="17" rx="8" fill="#1c3a2a" stroke="#2f6b49"/>
+          <text x="-1" y="2" text-anchor="end" font-size="11" fill="#37d67a">👤 ${esc(n)}</text></g>`;
+    });
+  }
+  svg.innerHTML = out;
+
+  const home = people.filter((p) => p.is_home).map((p) => p.name);
+  $("house-people").textContent = people.length ? `Home: ${home.length ? home.join(", ") : "nobody"}` : "";
+
+  const others = Object.entries(other);
+  $("house-other").innerHTML = others.length
+    ? `<h3 style="margin-top:18px">Rooms not on the plan</h3>` + others.map(([room, list]) =>
+        `<div class="room">${esc(room)}</div><div class="devices">${list.map(deviceCard).join("")}</div>`).join("")
+    : (devices.length ? "" : `<p class="empty" style="margin-top:12px">No devices yet${isAdmin() || status.setup_required
+        ? " — add the demo house in Admin → Devices." : "."}</p>`);
+
+  renderHousePop();
+}
+
+function openHouseDevice(id, e) {
+  e.stopPropagation();
+  houseSel = id;
+  const wrap = $("house-wrap").getBoundingClientRect();
+  const g = e.currentTarget.getBoundingClientRect();
+  const pop = $("house-pop");
+  // Beside the device; flip to its left near the right edge.
+  let left = g.right - wrap.left + 8;
+  if (left + 250 > wrap.width) left = g.left - wrap.left - 258;
+  pop.style.left = Math.max(4, left) + "px";
+  pop.style.top = Math.max(4, g.top - wrap.top - 10) + "px";
+  pop.style.display = "block";
+  renderHouse();
+}
+
+function renderHousePop() {
+  const pop = $("house-pop");
+  const d = devices.find((x) => x.id === houseSel);
+  if (!d) { pop.style.display = "none"; return; }
+  // Same rule as the cards: don't redraw under a slider being dragged.
+  const focus = document.activeElement;
+  if (pop.contains(focus) && (focus.tagName === "INPUT" || focus.tagName === "SELECT")) return;
+  const room = d.room ? `<div class="hint" style="margin:0">${esc(d.room)} · ${esc((kinds[d.kind] || {}).label || d.kind)}</div>` : "";
+  pop.innerHTML = `<button class="close" onclick="closeHousePop()" title="close">×</button>` +
+    deviceCard(d).replace(/^<div class="dev">/, "").replace(/<\/div>\s*$/, "") + room;
+}
+
+function closeHousePop() {
+  houseSel = null;
+  $("house-pop").style.display = "none";
+  if (view === "house") renderHouse();
+}
+
+function houseBackgroundClick(e) {
+  if (!e.target.closest(".hdev")) closeHousePop();
 }
 
 // ---------------------------------------------------------- people / feed
 
 async function loadPeople() {
   const rows = await api("/api/people");
+  people = rows;
+  if (view === "house") renderHouse();
   const t = $("people");
   t.innerHTML = rows.length ? "" : '<tr><td class="empty">no one registered yet</td></tr>';
   for (const p of rows) {
@@ -495,6 +878,9 @@ function addEvent(ev) {
   if (ev.type === "device_command") detail = `${ev.device_id}${p.by ? " by " + p.by : ""}`;
   if (ev.type === "person_entered") detail = `${p.name || "someone (not recognized)"} walked in at ${p.camera}`;
   if (ev.type === "presence_arrived" && p.via === "door") detail = `${p.name} (through the ${p.camera} door)`;
+  if (ev.type === "person_exited") detail = `${p.name || "someone (no face seen)"} walked out at ${p.camera}`;
+  if (ev.type === "presence_left" && p.via === "door")
+    detail = `${p.name} (out the ${p.camera} door${p.guessed ? " — only one home, so it must be them" : ""})`;
   box.insertAdjacentHTML("afterbegin",
     `<div><span class="t">${time(ev.timestamp)}</span><span class="${cls}">${esc(ev.type)}</span> — ${esc(detail)}</div>`);
   while (box.children.length > 100) box.lastChild.remove();
@@ -540,7 +926,7 @@ async function refreshAdmin() {
   $("logout-btn").style.display = status.admin ? "" : "none";
   $("admin-who").textContent = status.admin ? `Admin: ${status.admin.name}`
     : status.setup_required ? "Setup mode — no admin yet" : "";
-  $("admin").style.display = status.admin || status.setup_required ? "" : "none";
+  $("admin").style.display = (status.admin || status.setup_required) && view === "dash" ? "" : "none";
   $("setup").style.display = status.setup_required ? "" : "none";
   // Setup mode can enroll faces (the admin's own) before the admin exists.
   $("admin-tools").style.display = status.admin || status.setup_required ? "" : "none";
@@ -828,6 +1214,7 @@ $("login-pass").addEventListener("keydown", (e) => { if (e.key === "Enter") logi
 
 (async () => {
   await refreshAdmin();
+  if (location.hash === "#house") showView("house");
   loadHealth(); loadPeople(); loadDevices(); loadNotifications(); loadCameras(); connect();
   setInterval(loadHealth, 10000);
   setInterval(loadCameras, 2000);

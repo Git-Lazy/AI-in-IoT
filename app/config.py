@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     door_confirm_frames: int = 3          # frames on the new side before a crossing counts
     door_identify_seconds: float = 4.0    # wait this long for a face after someone walks in
 
+    # Not seen for this long = left. Short without a door line (it's the only
+    # clue); long with one, where walking out is seen and this is just a backup.
+    presence_timeout_minutes: int = 5
+    door_presence_timeout_minutes: int = 120
+
     # Admin
     # Admin login needs password + the admin's face on a camera. Turn off only
     # while you have no working camera.
