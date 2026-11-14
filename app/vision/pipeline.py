@@ -166,6 +166,8 @@ class VisionPipeline:
         while not self._stop.is_set():
             frame = self._camera.read()
             if frame is None:
+                if self._camera.stalled:
+                    self._draw_no_signal()
                 time.sleep(interval)
                 continue
 
@@ -436,3 +438,17 @@ class VisionPipeline:
             )
         with self._preview_lock:
             self._preview = annotated
+
+    def _draw_no_signal(self) -> None:
+        """Replace the preview so a dead camera doesn't look like a frozen room."""
+        import cv2
+
+        with self._preview_lock:
+            h, w = self._preview.shape[:2] if self._preview is not None else (360, 640)
+        blank = np.zeros((h, w, 3), dtype=np.uint8)
+        for text, y, scale in (("NO SIGNAL", h // 2 - 10, 1.2),
+                               (f"camera {self._camera.source!r} - reconnecting...", h // 2 + 30, 0.6)):
+            (tw, _), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, scale, 2)
+            cv2.putText(blank, text, ((w - tw) // 2, y), cv2.FONT_HERSHEY_SIMPLEX, scale, (0, 215, 255), 2)
+        with self._preview_lock:
+            self._preview = blank

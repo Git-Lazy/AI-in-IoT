@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     # A device is access-checked by the camera in its room. Empty = one camera,
     # "front_door" in the Entry, on CAMERA_SOURCE.
     cameras: str = ""
+    # Windows capture backend for webcams: "" (OpenCV default, MSMF), "dshow"
+    # (DirectShow -- try this if a USB webcam freezes or won't open), "msmf".
+    camera_api: str = ""
 
     # Door lines: walking across one is what counts as arriving (see
     # app/vision/doorway.py). "camera:x1,y1,x2,y2[:flip]", ";" between cameras.
