@@ -114,6 +114,26 @@ class Preference(Base):
     payload: Mapped[dict] = mapped_column(JSON, default=dict)   # same shape as a command
 
 
+class PreferenceSample(Base):
+    """One arrival, as a training example for learned preferences (app/learning).
+
+    `features` is the situation when they walked in (hour, weekday, temperature,
+    who else was home). `before` is every learnable device's setting at that
+    moment; `labels` is filled in once the learning window closes: per device,
+    the setting it ended up at, or "leave" if it wasn't changed.
+    """
+
+    __tablename__ = "preference_samples"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    person_id: Mapped[int] = mapped_column(ForeignKey("people.id", ondelete="CASCADE"), index=True)
+    arrived_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    features: Mapped[dict] = mapped_column(JSON, default=dict)
+    before: Mapped[dict] = mapped_column(JSON, default=dict)
+    labels: Mapped[dict | None] = mapped_column(JSON, nullable=True)   # None = window still open
+    source: Mapped[str] = mapped_column(String(16), default="live")    # live | demo
+
+
 class CameraSetting(Base):
     """Per-camera settings made on the dashboard. They win over .env."""
 

@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable
 
-from app import access
+from app import access, learning
 from app.config import settings
 from app.db import session_scope
 from app.db.models import Device, EventLog, Person, Preference
@@ -430,5 +430,9 @@ def register_handlers() -> None:
     bus.subscribe(track_presence, {EventType.PERSON_RECOGNIZED, EventType.PERSON_SEEN})
     bus.subscribe(arrive_through_door, {EventType.PERSON_ENTERED})
     bus.subscribe(leave_through_door, {EventType.PERSON_EXITED})
+    # Before evaluate_rules: the learning snapshot must see the house as the
+    # person found it, not after welcome_home / away_shutdown changed it.
+    bus.subscribe(learning.on_arrival, {EventType.PRESENCE_ARRIVED})
+    bus.subscribe(learning.on_left, {EventType.PRESENCE_LEFT})
     bus.subscribe(evaluate_rules)
     log.info("automation handlers registered (%d rules)", len(RULES))

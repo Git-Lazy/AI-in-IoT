@@ -18,8 +18,15 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 
-from app import __version__
-from app.api import routes_admin, routes_devices, routes_events, routes_people, routes_stream
+from app import __version__, learning
+from app.api import (
+    routes_admin,
+    routes_devices,
+    routes_events,
+    routes_learning,
+    routes_people,
+    routes_stream,
+)
 from app.api.schemas import HealthOut
 from app.automation import expire_presence, register_handlers
 from app.config import PROJECT_ROOT, settings
@@ -47,6 +54,10 @@ async def _presence_sweeper() -> None:
             await expire_presence()
         except Exception:
             log.exception("presence sweep failed")
+        try:
+            learning.finalize_due()
+        except Exception:
+            log.exception("learning sweep failed")
 
 
 @asynccontextmanager
@@ -95,6 +106,7 @@ app.include_router(routes_admin.router)
 app.include_router(routes_people.router)
 app.include_router(routes_devices.router)
 app.include_router(routes_events.router)
+app.include_router(routes_learning.router)
 app.include_router(routes_stream.router)
 
 

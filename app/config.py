@@ -55,6 +55,10 @@ class Settings(BaseSettings):
     presence_timeout_minutes: int = 5
     door_presence_timeout_minutes: int = 120
 
+    # Learned preferences (app/learning). After someone arrives, whatever they
+    # change within this many minutes is what they "wanted" for that situation.
+    learning_window_minutes: int = 15
+
     # Admin
     # Admin login needs password + the admin's face on a camera. Turn off only
     # while you have no working camera.
