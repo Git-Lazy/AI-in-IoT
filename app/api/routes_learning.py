@@ -1,14 +1,19 @@
-"""Learned preferences: the training examples collected so far."""
+"""Learned preferences: training examples, the trained models, and what they'd do."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app import auth
 from app.db import get_db
 from app.db.models import Device, Person, PreferenceSample
-from app.learning import LEAVE
-from app.learning.samples import describe
+from app.learning import LEAVE, demo
+from app.learning.model import learner
+from app.learning.samples import describe, features_at
 
 router = APIRouter(prefix="/api/learning", tags=["learning"])
 
@@ -42,3 +47,59 @@ def samples(limit: int = 50, db: Session = Depends(get_db)):
             "source": s.source,
         })
     return {"totals": totals, "recent": recent}
+
+
+@router.get("/models")
+def models(person_id: int | None = None):
+    """Every trained model: accuracy vs. the "do the usual" baseline, and its rules."""
+    return {
+        "trained_at": learner.trained_at.isoformat() if learner.trained_at else None,
+        "models": [m.to_dict() for m in learner.models(person_id)],
+    }
+
+
+@router.post("/train")
+def train(_admin=Depends(auth.require_admin)):
+    return {"models": len(learner.train())}
+
+
+@router.get("/predict/{person_id}")
+def predict(
+    person_id: int, db: Session = Depends(get_db),
+    hour: float | None = None, weekend: bool | None = None,
+    temp_f: float | None = None, others_home: int = 0,
+):
+    """What the house would do if this person walked in now -- or in the
+    situation given by the query (try ?hour=19&temp_f=84)."""
+    if db.get(Person, person_id) is None:
+        raise HTTPException(404, "no such person")
+    features = features_at(datetime.now().astimezone(), temp_f, others_home)
+    if hour is not None:
+        features["hour"] = hour
+    if weekend is not None:
+        features["weekend"] = int(weekend)
+    return {"features": features, "predictions": [p.to_dict() for p in learner.predict(person_id, features)]}
+
+
+class DemoHistoryIn(BaseModel):
+    person_id: int | None = None          # default: the logged-in admin
+    weeks: int = Field(6, ge=1, le=26)
+
+
+@router.post("/demo-history", status_code=201)
+def add_demo_history(body: DemoHistoryIn, db: Session = Depends(get_db), admin=Depends(auth.require_admin)):
+    """Generate weeks of arrivals that follow made-up habits, then retrain."""
+    person_id = body.person_id or (admin.id if admin else None)
+    if person_id is None or db.get(Person, person_id) is None:
+        raise HTTPException(400, "say whose history to generate (person_id)")
+    try:
+        added = demo.seed(person_id, body.weeks)
+    except LookupError as exc:
+        raise HTTPException(400, str(exc)) from None
+    return {"added": added, "models": len(learner.train())}
+
+
+@router.delete("/demo-history")
+def remove_demo_history(_admin=Depends(auth.require_admin)):
+    removed = demo.clear()
+    return {"removed": removed, "models": len(learner.train())}

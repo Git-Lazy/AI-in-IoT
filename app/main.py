@@ -34,6 +34,7 @@ from app.db import init_db
 from app.events import Event, EventType, bus
 from app.iot import mqtt_bridge
 from app.iot.simulator import simulator
+from app.learning.model import learner
 from app.vision import cameras
 
 logging.basicConfig(
@@ -55,7 +56,8 @@ async def _presence_sweeper() -> None:
         except Exception:
             log.exception("presence sweep failed")
         try:
-            learning.finalize_due()
+            if learning.finalize_due():
+                learner.train()            # new examples: rebuild (milliseconds)
         except Exception:
             log.exception("learning sweep failed")
 
@@ -67,6 +69,7 @@ async def lifespan(app: FastAPI):
     bus.bind_loop(asyncio.get_running_loop())
     init_db()
     register_handlers()
+    learner.train()
     routes_stream.register_broadcast()
 
     mqtt_bridge.start()

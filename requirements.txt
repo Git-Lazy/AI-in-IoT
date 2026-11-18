@@ -25,6 +25,7 @@ torchvision==0.17.2
 ultralytics==8.4.184         # YOLO11 detection + tracking
 lap==0.5.13                  # ultralytics tracker dependency
 facenet-pytorch==2.6.0       # FaceNet embeddings
+scikit-learn==1.5.2          # learned preferences (decision trees)
 
 # --- Dev ---
 pytest==8.3.4
